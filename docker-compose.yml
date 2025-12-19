@@ -1,0 +1,34 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-network
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=crypto_pachinko
+      - MYSQL_USER=crypto_user
+      - MYSQL_PASSWORD=crypto_pass
+    ports:
+      - "3306:3306"
+
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  mysql-data:
+  portainer_data:
+
+networks:
+  crypto-network:
+    driver: bridge
