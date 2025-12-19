@@ -2,6 +2,7 @@ using CryptoExchange.Net.SharedApis;
 using HyperLiquid.Net.Clients;
 using HyperLiquid.Net.Enums;
 using HyperLiquid.Net.Objects.Models;
+using NSec.Cryptography;
 
 /// <summary>
 /// シンボル情報とレバレッジ設定を保持するクラス
@@ -175,6 +176,95 @@ class HyperLiquidExchange
         }
 
         return await PlaceOrderAsync(symbol, side, amountToBuyUSDC, currentPrice, tpPrice, slPrice);
+    }
+
+    /// <summary>
+    /// 指定したシンボルのポジションをクローズする
+    /// </summary>
+    /// <param name="symbol"></param>
+    /// <returns></returns>
+    public async Task<HyperLiquidOrderResult> CloseOrderAsync(string symbol)
+    {
+        {
+
+            // 現在の注文情報を取得
+            var openOrdersResult = await MainWalletClient.FuturesApi.Trading.GetOpenOrdersAsync();
+
+            if (!openOrdersResult.Success)
+            {
+                throw new Exception($"Failed to get position info: {openOrdersResult.Error}");
+            }
+
+            var openOrders = openOrdersResult.Data.Where(x => x.Symbol == symbol).ToList();
+            if (openOrders.Any())
+            {
+                var cancelRequests = openOrders.Select(positions =>
+                    new HyperLiquidCancelRequest(
+                        symbol: symbol,
+                        orderId: positions.OrderId
+                    )
+                ).ToList();
+                var cancelResult = await ApiWalletClient.FuturesApi.Trading.CancelOrdersAsync(cancelRequests);
+                if (!cancelResult.Success)
+                {
+                    throw new Exception($"Failed to cancel orders: {cancelResult.Error}");
+                }
+            }
+        }
+        {
+
+            // 現在保持しているポジションを取得
+            var positionsResult = await MainWalletClient.FuturesApi.Account.GetAccountInfoAsync();
+            var symbolPosition = positionsResult.Data.Positions.FirstOrDefault(position => position.Position.Symbol == symbol);
+            if (symbolPosition != null)
+            {
+                var closeQuantity = symbolPosition.Position.PositionQuantity;
+                if (closeQuantity == null || closeQuantity == 0)
+                {
+                    throw new Exception($"{symbol} : closeQuantity is null or zero");
+                }
+
+                // ポジション数量の符号でサイドを判定
+                // 正 = ロング → クローズはSell
+                // 負 = ショート → クローズはBuy
+                var isLong = closeQuantity > 0;
+                var closeSide = isLong ? OrderSide.Sell : OrderSide.Buy;
+                var absQuantity = Math.Abs(closeQuantity.Value);
+
+                // 現在価格で成行決済注文を出す
+                var tickerResult = await MainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
+                if (!tickerResult.Success)
+                {
+                    throw new Exception($"Failed to get ticker info: {tickerResult.Error}");
+                }
+
+                var currentPrice = tickerResult.Data.Tickers.First(t => t.Symbol == symbol).MarkPrice;
+
+                var marketCloseRequest = await ApiWalletClient.FuturesApi.Trading.PlaceOrderAsync(
+                    symbol: symbol,
+                    side: closeSide,
+                    orderType: OrderType.Market,
+                    quantity: absQuantity,
+                    price: currentPrice
+                );
+
+                if (marketCloseRequest.Success)
+                {
+                    return marketCloseRequest.Data;
+                }
+                else
+                {
+                    throw new Exception($"Failed to place market close order: {marketCloseRequest.Error}");
+                }
+            }
+            else
+            {
+                // ポジションなし
+                return new HyperLiquidOrderResult()
+                {
+                };
+            }
+        }
     }
 
     /// <summary>
