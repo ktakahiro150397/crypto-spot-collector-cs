@@ -37,181 +37,190 @@ var restClient = new HyperLiquidRestClient(options =>
     }
 });
 
-// var futures = await restClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
-// Console.WriteLine(futures);
+var exchange = new HyperLiquidExchange(restClientMainWallet, restClient);
 
-var result = await restClient.FuturesApi.Account.GetAccountInfoAsync();
-if (result.Success)
-{
-    Console.WriteLine("Account Info:");
-    Console.WriteLine(result.Data);
-}
-else
-{
-    Console.WriteLine($"Failed to get account info. Error: {result.Error}");
-}
+var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
+Console.WriteLine($"Long Order : {longResult}");
 
-// 現在価格を取得
-var tickerResult = await restClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
-var ethTicker = tickerResult.Data.Tickers.FirstOrDefault(t => t.Symbol == "ETH");
-if (ethTicker == null)
-{
-    Console.WriteLine("ETH ticker not found");
-    return;
-}
+var shortResult = await exchange.PlaceOrderAsync("SOL", OrderSide.Sell, 100m, 1.1m, 0.9m);
+Console.WriteLine($"Short Order : {shortResult}");
 
-var currentPrice = ethTicker.MarkPrice;
-Console.WriteLine($"ETH Current Price: {currentPrice}");
 
-// Market Buy: 現在価格より少し高い価格を設定（スリッページ許容）
-// Market Sell: 現在価格より少し低い価格を設定
-var slippagePercent = 0.01m; // 1%のスリッページ許容
-var orderPrice = Math.Round(currentPrice * (1 + slippagePercent), 1);
+// // var futures = await restClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
+// // Console.WriteLine(futures);
 
-var orderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-    symbol: "ETH",
-    side: OrderSide.Buy,
-    orderType: OrderType.Market,
-    quantity: 0.01m,
-    price: orderPrice
-);
+// var result = await restClient.FuturesApi.Account.GetAccountInfoAsync();
+// if (result.Success)
+// {
+//     Console.WriteLine("Account Info:");
+//     Console.WriteLine(result.Data);
+// }
+// else
+// {
+//     Console.WriteLine($"Failed to get account info. Error: {result.Error}");
+// }
 
-if (orderResult.Success)
-{
-    Console.WriteLine($"Order placed successfully. Order ID: {orderResult.Data.OrderId}");
-}
-else
-{
-    Console.WriteLine($"Failed to place order. Error: {orderResult.Error}");
-}
+// // 現在価格を取得
+// var tickerResult = await restClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
+// var ethTicker = tickerResult.Data.Tickers.FirstOrDefault(t => t.Symbol == "ETH");
+// if (ethTicker == null)
+// {
+//     Console.WriteLine("ETH ticker not found");
+//     return;
+// }
 
-// ========================================
-// TP/SL（Take Profit / Stop Loss）の注文方法
-// ========================================
+// var currentPrice = ethTicker.MarkPrice;
+// Console.WriteLine($"ETH Current Price: {currentPrice}");
 
-// ポジションを持っている場合、TP/SLを設定する
-// 例: ETH Longポジションを持っている場合
+// // Market Buy: 現在価格より少し高い価格を設定（スリッページ許容）
+// // Market Sell: 現在価格より少し低い価格を設定
+// var slippagePercent = 0.01m; // 1%のスリッページ許容
+// var orderPrice = Math.Round(currentPrice * (1 + slippagePercent), 1);
 
-// Take Profit (TP) 注文 - 利益確定
-// 現在価格より高い価格で売り注文を出す（Longの場合）
-var tpPrice = Math.Round(currentPrice * 1.05m, 1);  // 5%上昇したら利確
-var tpResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-    symbol: "ETH",
-    side: OrderSide.Sell,              // Longポジションを閉じるのでSell
-    orderType: OrderType.StopMarket,   // トリガー時に成行で執行
-    quantity: 0.01m,                   // ポジションサイズ
-    price: tpPrice,                    // 執行価格（StopMarketの場合はtriggerPriceと同じでOK）
-    triggerPrice: tpPrice,             // この価格に達したらトリガー
-    tpSlType: TpSlType.TakeProfit,     // Take Profitとして設定
-    reduceOnly: true,                  // ポジションを減らすだけ（新規ポジションを作らない）
-    tpSlGrouping: TpSlGrouping.PositionTpSl  // ポジション全体に対するTP/SL
-);
+// var orderResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//     symbol: "ETH",
+//     side: OrderSide.Buy,
+//     orderType: OrderType.Market,
+//     quantity: 0.01m,
+//     price: orderPrice
+// );
 
-if (tpResult.Success)
-{
-    Console.WriteLine($"Take Profit order placed. Order ID: {tpResult.Data.OrderId}, Trigger Price: {tpPrice}");
-}
-else
-{
-    Console.WriteLine($"Failed to place TP order. Error: {tpResult.Error}");
-}
+// if (orderResult.Success)
+// {
+//     Console.WriteLine($"Order placed successfully. Order ID: {orderResult.Data.OrderId}");
+// }
+// else
+// {
+//     Console.WriteLine($"Failed to place order. Error: {orderResult.Error}");
+// }
 
-// Stop Loss (SL) 注文 - 損切り
-// 現在価格より低い価格で売り注文を出す（Longの場合）
-var slPrice = Math.Round(currentPrice * 0.97m, 1);  // 3%下落したら損切り
-var slResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-    symbol: "ETH",
-    side: OrderSide.Sell,              // Longポジションを閉じるのでSell
-    orderType: OrderType.StopMarket,   // トリガー時に成行で執行
-    quantity: 0.01m,                   // ポジションサイズ
-    price: slPrice,                    // 執行価格
-    triggerPrice: slPrice,             // この価格に達したらトリガー
-    tpSlType: TpSlType.StopLoss,       // Stop Lossとして設定
-    reduceOnly: true,                  // ポジションを減らすだけ
-    tpSlGrouping: TpSlGrouping.PositionTpSl
-);
+// // ========================================
+// // TP/SL（Take Profit / Stop Loss）の注文方法
+// // ========================================
 
-if (slResult.Success)
-{
-    Console.WriteLine($"Stop Loss order placed. Order ID: {slResult.Data.OrderId}, Trigger Price: {slPrice}");
-}
-else
-{
-    Console.WriteLine($"Failed to place SL order. Error: {slResult.Error}");
-}
+// // ポジションを持っている場合、TP/SLを設定する
+// // 例: ETH Longポジションを持っている場合
 
-// ========================================
-// TP/SL注文のOrder IDを取得する方法
-// ========================================
-// HyperLiquidのAPIはトリガー注文（TP/SL）のOrder IDを
-// レスポンスで返さないため、オープン注文から検索する必要がある
+// // Take Profit (TP) 注文 - 利益確定
+// // 現在価格より高い価格で売り注文を出す（Longの場合）
+// var tpPrice = Math.Round(currentPrice * 1.05m, 1);  // 5%上昇したら利確
+// var tpResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//     symbol: "ETH",
+//     side: OrderSide.Sell,              // Longポジションを閉じるのでSell
+//     orderType: OrderType.StopMarket,   // トリガー時に成行で執行
+//     quantity: 0.01m,                   // ポジションサイズ
+//     price: tpPrice,                    // 執行価格（StopMarketの場合はtriggerPriceと同じでOK）
+//     triggerPrice: tpPrice,             // この価格に達したらトリガー
+//     tpSlType: TpSlType.TakeProfit,     // Take Profitとして設定
+//     reduceOnly: true,                  // ポジションを減らすだけ（新規ポジションを作らない）
+//     tpSlGrouping: TpSlGrouping.PositionTpSl  // ポジション全体に対するTP/SL
+// );
 
-var openOrdersResult = await restClientMainWallet.FuturesApi.Trading.GetOpenOrdersAsync();
-if (openOrdersResult.Success)
-{
-    Console.WriteLine("\n=== Open Orders ===");
-    foreach (var order in openOrdersResult.Data)
-    {
-        Console.WriteLine($"Order ID: {order.OrderId}, Symbol: {order.ExchangeSymbol}, " +
-                          $"Price: {order.Price}, Side: {order.OrderSide} ");
-    }
-}
+// if (tpResult.Success)
+// {
+//     Console.WriteLine($"Take Profit order placed. Order ID: {tpResult.Data.OrderId}, Trigger Price: {tpPrice}");
+// }
+// else
+// {
+//     Console.WriteLine($"Failed to place TP order. Error: {tpResult.Error}");
+// }
 
-// 既存のTP/SL注文を削除
-var tpSlOrderIds = openOrdersResult.Data.Where(order => order.Symbol == "ETH");
-foreach (var tpSlOrderId in tpSlOrderIds)
-{
-    var cancelResult = await restClient.FuturesApi.Trading.CancelOrderAsync(
-        symbol: "ETH",
-        orderId: tpSlOrderId.OrderId
-    );
-    if (cancelResult.Success)
-    {
-        Console.WriteLine($"Cancelled TP/SL order. Order ID: {tpSlOrderId.OrderId}");
-    }
-    else
-    {
-        Console.WriteLine($"Failed to cancel TP/SL order. Order ID: {tpSlOrderId.OrderId}, Error: {cancelResult.Error}");
-    }
-}
+// // Stop Loss (SL) 注文 - 損切り
+// // 現在価格より低い価格で売り注文を出す（Longの場合）
+// var slPrice = Math.Round(currentPrice * 0.97m, 1);  // 3%下落したら損切り
+// var slResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//     symbol: "ETH",
+//     side: OrderSide.Sell,              // Longポジションを閉じるのでSell
+//     orderType: OrderType.StopMarket,   // トリガー時に成行で執行
+//     quantity: 0.01m,                   // ポジションサイズ
+//     price: slPrice,                    // 執行価格
+//     triggerPrice: slPrice,             // この価格に達したらトリガー
+//     tpSlType: TpSlType.StopLoss,       // Stop Lossとして設定
+//     reduceOnly: true,                  // ポジションを減らすだけ
+//     tpSlGrouping: TpSlGrouping.PositionTpSl
+// );
 
-// 再度TP/SL注文
+// if (slResult.Success)
+// {
+//     Console.WriteLine($"Stop Loss order placed. Order ID: {slResult.Data.OrderId}, Trigger Price: {slPrice}");
+// }
+// else
+// {
+//     Console.WriteLine($"Failed to place SL order. Error: {slResult.Error}");
+// }
 
-// Take Profit (TP) 注文 - 利益確定
-// 現在価格より高い価格で売り注文を出す（Longの場合）
-tpPrice = Math.Round(currentPrice * 1.1m, 1);  // 5%上昇したら利確
-tpResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-    symbol: "ETH",
-    side: OrderSide.Sell,              // Longポジションを閉じるのでSell
-    orderType: OrderType.StopMarket,   // トリガー時に成行で執行
-    quantity: 0.01m,                   // ポジションサイズ
-    price: tpPrice,                    // 執行価格（StopMarketの場合はtriggerPriceと同じでOK）
-    triggerPrice: tpPrice,             // この価格に達したらトリガー
-    tpSlType: TpSlType.TakeProfit,     // Take Profitとして設定
-    reduceOnly: true,                  // ポジションを減らすだけ（新規ポジションを作らない）
-    tpSlGrouping: TpSlGrouping.PositionTpSl  // ポジション全体に対するTP/SL
-);
+// // ========================================
+// // TP/SL注文のOrder IDを取得する方法
+// // ========================================
+// // HyperLiquidのAPIはトリガー注文（TP/SL）のOrder IDを
+// // レスポンスで返さないため、オープン注文から検索する必要がある
 
-if (tpResult.Success)
-{
-    Console.WriteLine($"Take Profit order placed. Order ID: {tpResult.Data.OrderId}, Trigger Price: {tpPrice}");
-}
-else
-{
-    Console.WriteLine($"Failed to place TP order. Error: {tpResult.Error}");
-}
+// var openOrdersResult = await restClientMainWallet.FuturesApi.Trading.GetOpenOrdersAsync();
+// if (openOrdersResult.Success)
+// {
+//     Console.WriteLine("\n=== Open Orders ===");
+//     foreach (var order in openOrdersResult.Data)
+//     {
+//         Console.WriteLine($"Order ID: {order.OrderId}, Symbol: {order.ExchangeSymbol}, " +
+//                           $"Price: {order.Price}, Side: {order.OrderSide} ");
+//     }
+// }
 
-// Stop Loss (SL) 注文 - 損切り
-// 現在価格より低い価格で売り注文を出す（Longの場合）
-slPrice = Math.Round(currentPrice * 0.97m, 1);  // 3%下落したら損切り
-slResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
-    symbol: "ETH",
-    side: OrderSide.Sell,              // Longポジションを閉じるのでSell
-    orderType: OrderType.StopMarket,   // トリガー時に成行で執行
-    quantity: 0.01m,                   // ポジションサイズ
-    price: slPrice,                    // 執行価格
-    triggerPrice: slPrice,             // この価格に達したらトリガー
-    tpSlType: TpSlType.StopLoss,       // Stop Lossとして設定
-    reduceOnly: true,                  // ポジションを減らすだけ
-    tpSlGrouping: TpSlGrouping.PositionTpSl
-);
+// // 既存のTP/SL注文を削除
+// var tpSlOrderIds = openOrdersResult.Data.Where(order => order.Symbol == "ETH");
+// foreach (var tpSlOrderId in tpSlOrderIds)
+// {
+//     var cancelResult = await restClient.FuturesApi.Trading.CancelOrderAsync(
+//         symbol: "ETH",
+//         orderId: tpSlOrderId.OrderId
+//     );
+//     if (cancelResult.Success)
+//     {
+//         Console.WriteLine($"Cancelled TP/SL order. Order ID: {tpSlOrderId.OrderId}");
+//     }
+//     else
+//     {
+//         Console.WriteLine($"Failed to cancel TP/SL order. Order ID: {tpSlOrderId.OrderId}, Error: {cancelResult.Error}");
+//     }
+// }
+
+// // 再度TP/SL注文
+
+// // Take Profit (TP) 注文 - 利益確定
+// // 現在価格より高い価格で売り注文を出す（Longの場合）
+// tpPrice = Math.Round(currentPrice * 1.1m, 1);  // 5%上昇したら利確
+// tpResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//     symbol: "ETH",
+//     side: OrderSide.Sell,              // Longポジションを閉じるのでSell
+//     orderType: OrderType.StopMarket,   // トリガー時に成行で執行
+//     quantity: 0.01m,                   // ポジションサイズ
+//     price: tpPrice,                    // 執行価格（StopMarketの場合はtriggerPriceと同じでOK）
+//     triggerPrice: tpPrice,             // この価格に達したらトリガー
+//     tpSlType: TpSlType.TakeProfit,     // Take Profitとして設定
+//     reduceOnly: true,                  // ポジションを減らすだけ（新規ポジションを作らない）
+//     tpSlGrouping: TpSlGrouping.PositionTpSl  // ポジション全体に対するTP/SL
+// );
+
+// if (tpResult.Success)
+// {
+//     Console.WriteLine($"Take Profit order placed. Order ID: {tpResult.Data.OrderId}, Trigger Price: {tpPrice}");
+// }
+// else
+// {
+//     Console.WriteLine($"Failed to place TP order. Error: {tpResult.Error}");
+// }
+
+// // Stop Loss (SL) 注文 - 損切り
+// // 現在価格より低い価格で売り注文を出す（Longの場合）
+// slPrice = Math.Round(currentPrice * 0.97m, 1);  // 3%下落したら損切り
+// slResult = await restClient.FuturesApi.Trading.PlaceOrderAsync(
+//     symbol: "ETH",
+//     side: OrderSide.Sell,              // Longポジションを閉じるのでSell
+//     orderType: OrderType.StopMarket,   // トリガー時に成行で執行
+//     quantity: 0.01m,                   // ポジションサイズ
+//     price: slPrice,                    // 執行価格
+//     triggerPrice: slPrice,             // この価格に達したらトリガー
+//     tpSlType: TpSlType.StopLoss,       // Stop Lossとして設定
+//     reduceOnly: true,                  // ポジションを減らすだけ
+//     tpSlGrouping: TpSlGrouping.PositionTpSl
+// );

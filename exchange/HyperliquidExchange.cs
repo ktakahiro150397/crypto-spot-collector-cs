@@ -1,0 +1,192 @@
+using CryptoExchange.Net.SharedApis;
+using HyperLiquid.Net.Clients;
+using HyperLiquid.Net.Enums;
+using HyperLiquid.Net.Objects.Models;
+
+/// <summary>
+/// シンボル情報とレバレッジ設定を保持するクラス
+/// </summary>
+record SymbolWithLeverage(
+    HyperLiquidFuturesSymbol Symbol,
+    int Leverage,
+    MarginType MarginType
+);
+
+class HyperLiquidExchange
+{
+    private HyperLiquidRestClient MainWalletClient { get; }
+    private HyperLiquidRestClient ApiWalletClient { get; }
+
+    private readonly Dictionary<string, HyperLiquidFuturesSymbol> _symbols = new();
+    private readonly Dictionary<string, SymbolWithLeverage> _symbolInfoCache = new();
+
+    public HyperLiquidExchange(HyperLiquidRestClient mainWalletClient, HyperLiquidRestClient apiWalletClient)
+    {
+        MainWalletClient = mainWalletClient;
+        ApiWalletClient = apiWalletClient;
+
+        // シンボル情報を初期化(桁数・最大レバレッジを取得)
+        var exchangeResult = mainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAsync().Result;
+        if (!exchangeResult.Success)
+        {
+            throw new Exception($"Failed to get exchange info: {exchangeResult.Error}");
+        }
+
+        _symbols = exchangeResult.Data.GroupBy(x => x.Name)
+            .ToDictionary(g => g.Key, g => g.First());
+    }
+
+    /// <summary>
+    /// シンボル情報とレバレッジを取得（遅延初期化・キャッシュ付き）
+    /// </summary>
+    private async Task<SymbolWithLeverage> GetSymbolInfoAsync(string symbol)
+    {
+        // キャッシュにあればそれを返す
+        if (_symbolInfoCache.TryGetValue(symbol, out var cached))
+        {
+            return cached;
+        }
+
+        // シンボルが存在するか確認
+        if (!_symbols.TryGetValue(symbol, out var symbolData))
+        {
+            throw new Exception($"Symbol not found: {symbol}");
+        }
+
+        // レバレッジ情報を取得
+        var leverageResult = await MainWalletClient.FuturesApi.Account.GetUserSymbolAsync(symbol);
+
+        var info = leverageResult.Success
+            ? new SymbolWithLeverage(symbolData, leverageResult.Data.Leverage.Value, leverageResult.Data.Leverage.MarginType)
+            : new SymbolWithLeverage(symbolData, 1, MarginType.Cross);
+
+        _symbolInfoCache[symbol] = info;
+        return info;
+    }
+
+    /// <summary>
+    /// 指定したシンボル・USDCの組み合わせでポジションを作成
+    /// </summary>
+    /// <param name="symbol"></param>
+    /// <param name="amountToBuyUSDC"></param>
+    /// <returns></returns>
+    async Task<PlaceOrderAsyncResult> PlaceOrderAsync(string symbol, OrderSide side, decimal amountToBuyUSDC, decimal price, decimal tpPrice, decimal slPrice)
+    {
+        var symbolInfo = await GetSymbolInfoAsync(symbol);
+        var quantity = Math.Round(amountToBuyUSDC / price, symbolInfo.Symbol.QuantityDecimals);
+
+        var orders = new List<HyperLiquidOrderRequest>();
+
+        var positionRequest = new HyperLiquidOrderRequest(
+            symbol: symbol,
+            side: side,
+            orderType: OrderType.Market,
+            quantity: quantity,
+            price: price
+        );
+        orders.Add(positionRequest);
+
+        var tpRequest = new HyperLiquidOrderRequest(
+            symbol: symbol,
+            side: side == OrderSide.Buy ? OrderSide.Sell : OrderSide.Buy,
+            orderType: OrderType.TakeProfitMarket,
+            quantity: quantity,
+            price: tpPrice,
+            triggerPrice: tpPrice,
+            tpSlType: TpSlType.TakeProfit,
+            reduceOnly: true
+        );
+        orders.Add(tpRequest);
+
+        var slRequest = new HyperLiquidOrderRequest(
+            symbol: symbol,
+            side: side == OrderSide.Buy ? OrderSide.Sell : OrderSide.Buy,
+            orderType: OrderType.StopMarket,
+            quantity: quantity,
+            price: slPrice,
+            triggerPrice: slPrice,
+            tpSlType: TpSlType.StopLoss,
+            reduceOnly: true
+        );
+        orders.Add(slRequest);
+
+        var orderResult = await ApiWalletClient.FuturesApi.Trading.PlaceMultipleOrdersAsync(orders);
+        if (!orderResult.Success)
+        {
+            throw new Exception($"Order placement failed: {orderResult.Error}");
+        }
+
+        return new PlaceOrderAsyncResult(
+            OrderId: orderResult.Data[0].Data.OrderId,
+            TakeProfitOrderId: orderResult.Data[1].Data.OrderId,
+            StopLossOrderId: orderResult.Data[2].Data.OrderId
+        );
+    }
+
+    /// <summary>
+    /// 指定したシンボル・USDCの組み合わせでポジションを作成（TP/SL比率指定）
+    /// </summary>
+    /// <param name="symbol">シンボル名</param>
+    /// <param name="side">売買方向</param>
+    /// <param name="amountToBuyUSDC">購入金額(USDC)</param>
+    /// <param name="tpRatio">証拠金に対する利益確定比率 (0.5 = +50%で利確)</param>
+    /// <param name="slRatio">証拠金に対する損失確定比率 (0.2 = -20%で損切り)</param>
+    /// <returns></returns>
+    public async Task<PlaceOrderAsyncResult> PlaceOrderAsync(string symbol, OrderSide side, decimal amountToBuyUSDC, decimal tpRatio, decimal slRatio)
+    {
+        var symbolInfo = await GetSymbolInfoAsync(symbol);
+
+        var tickerResult = await MainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
+        if (!tickerResult.Success)
+        {
+            throw new Exception($"Failed to get ticker info: {tickerResult.Error}");
+        }
+
+        var currentPrice = tickerResult.Data.Tickers.First(t => t.Symbol == symbol).MarkPrice;
+        var leverage = symbolInfo.Leverage;
+
+        // レバレッジを考慮した価格変動率を計算
+        // 証拠金利益率 = 価格変動率 × レバレッジ
+        // → 価格変動率 = 証拠金利益率 / レバレッジ
+        var tpPriceChangeRatio = tpRatio / leverage;
+        var slPriceChangeRatio = slRatio / leverage;
+
+        decimal tpPrice, slPrice;
+
+        // HyperLiquidでは価格の桁数はAPIから取得できないため、
+        // 有効数字5桁で丸める（一般的な価格精度）
+        const int priceSigFigs = 5;
+
+        if (side == OrderSide.Buy)
+        {
+            // ロング: 価格上昇で利益、下落で損失
+            tpPrice = RoundToSignificantFigures(currentPrice * (1 + tpPriceChangeRatio), priceSigFigs);
+            slPrice = RoundToSignificantFigures(currentPrice * (1 - slPriceChangeRatio), priceSigFigs);
+        }
+        else if (side == OrderSide.Sell)
+        {
+            // ショート: 価格下落で利益、上昇で損失
+            tpPrice = RoundToSignificantFigures(currentPrice * (1 - tpPriceChangeRatio), priceSigFigs);
+            slPrice = RoundToSignificantFigures(currentPrice * (1 + slPriceChangeRatio), priceSigFigs);
+        }
+        else
+        {
+            throw new Exception("Invalid order side");
+        }
+
+        return await PlaceOrderAsync(symbol, side, amountToBuyUSDC, currentPrice, tpPrice, slPrice);
+    }
+
+    /// <summary>
+    /// 有効数字で丸める
+    /// </summary>
+    private static decimal RoundToSignificantFigures(decimal value, int significantFigures)
+    {
+        if (value == 0) return 0;
+
+        var scale = (decimal)Math.Pow(10, Math.Floor(Math.Log10((double)Math.Abs(value))) + 1 - significantFigures);
+        return scale * Math.Round(value / scale);
+    }
+
+
+}
