@@ -114,3 +114,7 @@ if (isConnected)
         Console.WriteLine($"  - {data.TimestampUtc}: O={data.OpenPrice}, H={data.HighPrice}, L={data.LowPrice}, C={data.ClosePrice}, V={data.Volume}");
     }
 }
+
+
+var notificationService = new DiscordNotificationService(config.DiscordNotificationUrl);
+await notificationService.SendNotificationAsync("MySQL接続テストが完了しました。");

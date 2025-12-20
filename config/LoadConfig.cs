@@ -5,6 +5,7 @@ public class Config
 {
     public WalletAddress WalletAddress { get; set; } = new();
     public string ConnectionString { get; set; } = string.Empty;
+    public string DiscordNotificationUrl { get; set; } = string.Empty;
     public bool IsTestnet { get; set; }
 
     private static Config? _instance;
