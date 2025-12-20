@@ -87,79 +87,85 @@ public class MySQLRepository
         return null;
     }
 
-    /// <summary>
-    /// OHLCVデータを取得する
-    /// </summary>
-    public async Task<List<OhlcvData>> GetOhlcvDataAsync(int cryptocurrencyId, DateTime? from = null, DateTime? to = null)
+    public async Task<Cryptocurrency?> GetCryptocurrencyByIdAsync(int id)
     {
-        var ohlcvList = new List<OhlcvData>();
-
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        var sql = @"SELECT id, cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at 
-                    FROM ohlcv_data 
-                    WHERE cryptocurrency_id = @cryptocurrencyId";
-
-        if (from.HasValue)
-            sql += " AND timestamp_utc >= @from";
-        if (to.HasValue)
-            sql += " AND timestamp_utc <= @to";
-
-        sql += " ORDER BY timestamp_utc DESC";
-
-        await using var command = new MySqlCommand(sql, connection);
-        command.Parameters.AddWithValue("@cryptocurrencyId", cryptocurrencyId);
-        if (from.HasValue)
-            command.Parameters.AddWithValue("@from", from.Value);
-        if (to.HasValue)
-            command.Parameters.AddWithValue("@to", to.Value);
+        await using var command = new MySqlCommand(
+            "SELECT id, symbol, name, created_at, updated_at FROM cryptocurrencies WHERE id = @id",
+            connection);
+        command.Parameters.AddWithValue("@id", id);
 
         await using var reader = await command.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        if (await reader.ReadAsync())
         {
-            ohlcvList.Add(new OhlcvData
+            return new Cryptocurrency
             {
-                Id = reader.GetInt64("id"),
-                CryptocurrencyId = reader.GetInt32("cryptocurrency_id"),
-                OpenPrice = reader.GetDecimal("open_price"),
-                HighPrice = reader.GetDecimal("high_price"),
-                LowPrice = reader.GetDecimal("low_price"),
-                ClosePrice = reader.GetDecimal("close_price"),
-                Volume = reader.GetDecimal("volume"),
-                TimestampUtc = reader.GetDateTime("timestamp_utc"),
-                CreatedAt = reader.GetDateTime("created_at")
-            });
+                Id = reader.GetInt32("id"),
+                Symbol = reader.GetString("symbol"),
+                Name = reader.GetString("name"),
+                CreatedAt = reader.GetDateTime("created_at"),
+                UpdatedAt = reader.GetDateTime("updated_at")
+            };
         }
 
-        return ohlcvList;
+        return null;
     }
-}
 
-/// <summary>
-/// 暗号通貨エンティティ
-/// </summary>
-public class Cryptocurrency
-{
-    public int Id { get; set; }
-    public string Symbol { get; set; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-    public DateTime CreatedAt { get; set; }
-    public DateTime UpdatedAt { get; set; }
-}
+    /// <summary>
+    /// OHLCVデータを追加または更新する
+    /// </summary>
+    public async Task AddOrUpdateOhlcvDataAsync(string symbol, List<OhlcvData> ohlcvData)
+    {
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
 
-/// <summary>
-/// OHLCVデータエンティティ
-/// </summary>
-public class OhlcvData
-{
-    public long Id { get; set; }
-    public int CryptocurrencyId { get; set; }
-    public decimal OpenPrice { get; set; }
-    public decimal HighPrice { get; set; }
-    public decimal LowPrice { get; set; }
-    public decimal ClosePrice { get; set; }
-    public decimal Volume { get; set; }
-    public DateTime TimestampUtc { get; set; }
-    public DateTime CreatedAt { get; set; }
+        // Cryptocurrenciesテーブルに存在するか確認
+        var currency = await GetCryptocurrencyBySymbolAsync(symbol: symbol);
+        if (currency == null)
+        {
+            // 存在しない場合は新規追加
+            await using (var insertCurrencyCmd = new MySqlCommand(
+                "INSERT INTO cryptocurrencies (symbol, name, created_at, updated_at) VALUES (@symbol, @name, NOW(), NOW())",
+                connection))
+            {
+                insertCurrencyCmd.Parameters.AddWithValue("@symbol", symbol);
+                insertCurrencyCmd.Parameters.AddWithValue("@name", symbol); // 名前が不明なためシンボルを使用
+                await insertCurrencyCmd.ExecuteNonQueryAsync();
+                currency = await GetCryptocurrencyBySymbolAsync(symbol: symbol);
+            }
+        }
+
+        if (currency == null)
+        {
+            throw new InvalidOperationException("Failed to retrieve or create cryptocurrency record.");
+        }
+
+        // OHLCVデータを挿入または更新
+        foreach (var data in ohlcvData)
+        {
+            await using var command = new MySqlCommand(
+                @"INSERT INTO ohlcv_data (cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at)
+                  VALUES (@cryptocurrencyId, @openPrice, @highPrice, @lowPrice, @closePrice, @volume, @timestampUtc, NOW())
+                  ON DUPLICATE KEY UPDATE
+                      open_price = VALUES(open_price),
+                      high_price = VALUES(high_price),
+                      low_price = VALUES(low_price),
+                      close_price = VALUES(close_price),
+                      volume = VALUES(volume)",
+                connection);
+
+            command.Parameters.AddWithValue("@cryptocurrencyId", currency.Id);
+            command.Parameters.AddWithValue("@openPrice", data.OpenPrice);
+            command.Parameters.AddWithValue("@highPrice", data.HighPrice);
+            command.Parameters.AddWithValue("@lowPrice", data.LowPrice);
+            command.Parameters.AddWithValue("@closePrice", data.ClosePrice);
+            command.Parameters.AddWithValue("@volume", data.Volume);
+            command.Parameters.AddWithValue("@timestampUtc", data.TimestampUtc);
+
+            await command.ExecuteNonQueryAsync();
+        }
+
+    }
 }

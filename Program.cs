@@ -76,5 +76,33 @@ if (isConnected)
     {
         Console.WriteLine($"\nBTC詳細: ID={btc.Id}, Name={btc.Name}, Created={btc.CreatedAt}");
     }
+
+    var insertCandle = candle.Select(c => new OhlcvData
+    {
+        //CryptocurrencyId = btc!.Id,
+        OpenPrice = c.OpenPrice,
+        HighPrice = c.HighPrice,
+        LowPrice = c.LowPrice,
+        ClosePrice = c.ClosePrice,
+        Volume = c.Volume,
+        TimestampUtc = c.OpenTime,
+        CreatedAt = DateTime.UtcNow
+    }).ToList();
+    await repository.AddOrUpdateOhlcvDataAsync("BTC", insertCandle);
+    Console.WriteLine($"\nOHLCVデータを追加または更新しました。 件数: {insertCandle.Count}");
+
+    var fartcoinCandle = await exchange.GetKlinesAsync("FARTCOIN", KlineInterval.ThirtyMinutes, startDate: DateTime.UtcNow.AddHours(-12), endDate: DateTime.UtcNow);
+    var insertFartcoinCandle = fartcoinCandle.Select(c => new OhlcvData
+    {
+        //CryptocurrencyId = btc!.Id,
+        OpenPrice = c.OpenPrice,
+        HighPrice = c.HighPrice,
+        LowPrice = c.LowPrice,
+        ClosePrice = c.ClosePrice,
+        Volume = c.Volume,
+        TimestampUtc = c.OpenTime,
+        CreatedAt = DateTime.UtcNow
+    }).ToList();
+    await repository.AddOrUpdateOhlcvDataAsync("FARTCOIN", insertFartcoinCandle);
+    Console.WriteLine($"\nFARTCOINのOHLCVデータを追加または更新しました。 件数: {insertFartcoinCandle.Count}");
 }
-;
