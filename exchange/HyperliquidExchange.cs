@@ -267,6 +267,23 @@ class HyperLiquidExchange
         }
     }
 
+    public async Task<HyperLiquidKline[]> GetKlinesAsync(string symbol, KlineInterval interval, DateTime startDate, DateTime endDate, int limit = 300)
+    {
+        var klineResult = await MainWalletClient.FuturesApi.ExchangeData.GetKlinesAsync(
+            symbol: symbol,
+            interval: interval,
+            startTime: startDate,
+            endTime: endDate
+        );
+
+        if (!klineResult.Success)
+        {
+            throw new Exception($"Failed to get klines: {klineResult.Error}");
+        }
+
+        return klineResult.Data;
+    }
+
     /// <summary>
     /// 有効数字で丸める
     /// </summary>

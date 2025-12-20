@@ -39,14 +39,17 @@ var restClient = new HyperLiquidRestClient(options =>
 
 var exchange = new HyperLiquidExchange(restClientMainWallet, restClient);
 
-var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
-Console.WriteLine($"Long Order : {longResult}");
+var candle = await exchange.GetKlinesAsync("ETH", KlineInterval.ThirtyMinutes, startDate: DateTime.UtcNow.AddHours(-2), endDate: DateTime.UtcNow);
+Console.WriteLine($"Candle : {candle.Count()}");
 
-var shortResult = await exchange.PlaceOrderAsync("SOL", OrderSide.Sell, 100m, 1.1m, 0.9m);
-Console.WriteLine($"Short Order : {shortResult}");
+// var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
+// Console.WriteLine($"Long Order : {longResult}");
 
-var closeResult = await exchange.CloseOrderAsync("ETH");
-Console.WriteLine($"Close Order : {closeResult}");
+// var shortResult = await exchange.PlaceOrderAsync("SOL", OrderSide.Sell, 100m, 1.1m, 0.9m);
+// Console.WriteLine($"Short Order : {shortResult}");
 
-var closeResult2 = await exchange.CloseOrderAsync("SOL");
-Console.WriteLine($"Close Order : {closeResult2}");
+// var closeResult = await exchange.CloseOrderAsync("ETH");
+// Console.WriteLine($"Close Order : {closeResult}");
+
+// var closeResult2 = await exchange.CloseOrderAsync("SOL");
+// Console.WriteLine($"Close Order : {closeResult2}");
