@@ -168,4 +168,47 @@ public class MySQLRepository
         }
 
     }
+
+    public async Task<List<OhlcvData>> GetOhlcvDataBySymbolAsync(string symbol, DateTime startDate, DateTime endDate)
+    {
+        var ohlcvDataList = new List<OhlcvData>();
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var currency = await GetCryptocurrencyBySymbolAsync(symbol);
+        if (currency == null)
+        {
+            return ohlcvDataList; // 空のリストを返す
+        }
+
+        await using var command = new MySqlCommand(
+            @"SELECT id, cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at
+              FROM ohlcv_data
+              WHERE cryptocurrency_id = @cryptocurrencyId AND timestamp_utc BETWEEN @startDate AND @endDate",
+            connection);
+
+        command.Parameters.AddWithValue("@cryptocurrencyId", currency.Id);
+        command.Parameters.AddWithValue("@startDate", startDate);
+        command.Parameters.AddWithValue("@endDate", endDate);
+
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            ohlcvDataList.Add(new OhlcvData
+            {
+                Id = reader.GetInt64("id"),
+                CryptocurrencyId = reader.GetInt32("cryptocurrency_id"),
+                OpenPrice = reader.GetDecimal("open_price"),
+                HighPrice = reader.GetDecimal("high_price"),
+                LowPrice = reader.GetDecimal("low_price"),
+                ClosePrice = reader.GetDecimal("close_price"),
+                Volume = reader.GetDecimal("volume"),
+                TimestampUtc = reader.GetDateTime("timestamp_utc"),
+                CreatedAt = reader.GetDateTime("created_at")
+            });
+        }
+
+        return ohlcvDataList;
+    }
 }

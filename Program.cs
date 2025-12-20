@@ -105,4 +105,12 @@ if (isConnected)
     }).ToList();
     await repository.AddOrUpdateOhlcvDataAsync("FARTCOIN", insertFartcoinCandle);
     Console.WriteLine($"\nFARTCOINのOHLCVデータを追加または更新しました。 件数: {insertFartcoinCandle.Count}");
+
+
+    var ohlcvData = await repository.GetOhlcvDataBySymbolAsync("BTC", DateTime.UtcNow.AddHours(-1), DateTime.UtcNow);
+    Console.WriteLine($"\nBTCのOHLCVデータ: {ohlcvData.Count}件");
+    foreach (var data in ohlcvData)
+    {
+        Console.WriteLine($"  - {data.TimestampUtc}: O={data.OpenPrice}, H={data.HighPrice}, L={data.LowPrice}, C={data.ClosePrice}, V={data.Volume}");
+    }
 }
