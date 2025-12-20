@@ -53,3 +53,28 @@ Console.WriteLine($"Candle : {candle.Count()}");
 
 // var closeResult2 = await exchange.CloseOrderAsync("SOL");
 // Console.WriteLine($"Close Order : {closeResult2}");
+
+// MySQL接続テスト
+Console.WriteLine("\n=== MySQL接続テスト ===");
+var repository = new MySQLRepository(config.ConnectionString);
+
+// 接続テスト
+var isConnected = await repository.TestConnectionAsync();
+if (isConnected)
+{
+    // 全ての暗号通貨を取得
+    var cryptocurrencies = await repository.GetAllCryptocurrenciesAsync();
+    Console.WriteLine($"\n登録されている暗号通貨: {cryptocurrencies.Count}件");
+    foreach (var crypto in cryptocurrencies)
+    {
+        Console.WriteLine($"  - {crypto.Symbol}: {crypto.Name}");
+    }
+
+    // BTCを取得
+    var btc = await repository.GetCryptocurrencyBySymbolAsync("BTC");
+    if (btc != null)
+    {
+        Console.WriteLine($"\nBTC詳細: ID={btc.Id}, Name={btc.Name}, Created={btc.CreatedAt}");
+    }
+}
+;
