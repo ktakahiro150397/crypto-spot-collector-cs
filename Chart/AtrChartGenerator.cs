@@ -1,4 +1,5 @@
 using ScottPlot;
+using Serilog;
 using Skender.Stock.Indicators;
 
 namespace Chart;
@@ -8,6 +9,7 @@ namespace Chart;
 /// </summary>
 public static class AtrChartGenerator
 {
+    private static readonly ILogger _logger = Log.ForContext(typeof(AtrChartGenerator));
     /// <summary>
     /// ATR Trailing Stopの結果をグラフ画像として保存します
     /// </summary>
@@ -110,7 +112,7 @@ public static class AtrChartGenerator
         // 画像として保存
         plot.SavePng(outputPath, width, height);
 
-        Console.WriteLine($"グラフを保存しました: {outputPath}");
+        _logger.Information("ATR Trailing Stopグラフを保存しました。ファイル: {OutputPath}, シンボル: {Symbol}", outputPath, symbol);
     }
 
     /// <summary>
@@ -190,6 +192,6 @@ public static class AtrChartGenerator
         // 画像として保存
         plot.SavePng(outputPath, width, height);
 
-        Console.WriteLine($"ローソク足チャートを保存しました: {outputPath}");
+        _logger.Information("ローソク足チャートを保存しました。ファイル: {OutputPath}, シンボル: {Symbol}", outputPath, symbol);
     }
 }

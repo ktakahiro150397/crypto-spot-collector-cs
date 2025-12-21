@@ -3,6 +3,7 @@ using HyperLiquid.Net.Clients;
 using HyperLiquid.Net.Enums;
 using HyperLiquid.Net.Objects.Models;
 using NSec.Cryptography;
+using Serilog;
 
 /// <summary>
 /// シンボル情報とレバレッジ設定を保持するクラス
@@ -20,21 +21,27 @@ class HyperLiquidExchange
 
     private readonly Dictionary<string, HyperLiquidFuturesSymbol> _symbols = new();
     private readonly Dictionary<string, SymbolWithLeverage> _symbolInfoCache = new();
+    private static readonly ILogger _logger = Log.ForContext<HyperLiquidExchange>();
 
     public HyperLiquidExchange(HyperLiquidRestClient mainWalletClient, HyperLiquidRestClient apiWalletClient)
     {
         MainWalletClient = mainWalletClient;
         ApiWalletClient = apiWalletClient;
 
+        _logger.Information("HyperLiquidExchangeを初期化中...");
+
         // シンボル情報を初期化(桁数・最大レバレッジを取得)
         var exchangeResult = mainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAsync().Result;
         if (!exchangeResult.Success)
         {
+            _logger.Error("取引所情報の取得に失敗しました: {Error}", exchangeResult.Error);
             throw new Exception($"Failed to get exchange info: {exchangeResult.Error}");
         }
 
         _symbols = exchangeResult.Data.GroupBy(x => x.Name)
             .ToDictionary(g => g.Key, g => g.First());
+
+        _logger.Information("HyperLiquidExchangeを初期化しました。登録シンボル数: {Count}", _symbols.Count);
     }
 
     /// <summary>
@@ -45,12 +52,14 @@ class HyperLiquidExchange
         // キャッシュにあればそれを返す
         if (_symbolInfoCache.TryGetValue(symbol, out var cached))
         {
+            _logger.Debug("シンボル情報をキャッシュから取得しました: {Symbol}", symbol);
             return cached;
         }
 
         // シンボルが存在するか確認
         if (!_symbols.TryGetValue(symbol, out var symbolData))
         {
+            _logger.Error("シンボルが見つかりません: {Symbol}", symbol);
             throw new Exception($"Symbol not found: {symbol}");
         }
 
@@ -62,6 +71,8 @@ class HyperLiquidExchange
             : new SymbolWithLeverage(symbolData, 1, MarginType.Cross);
 
         _symbolInfoCache[symbol] = info;
+        _logger.Debug("シンボル情報を取得しました。シンボル: {Symbol}, レバレッジ: {Leverage}, マージンタイプ: {MarginType}",
+            symbol, info.Leverage, info.MarginType);
         return info;
     }
 
@@ -73,6 +84,9 @@ class HyperLiquidExchange
     /// <returns></returns>
     async Task<PlaceOrderAsyncResult> PlaceOrderAsync(string symbol, OrderSide side, decimal amountToBuyUSDC, decimal price, decimal tpPrice, decimal slPrice)
     {
+        _logger.Information("注文を作成します。シンボル: {Symbol}, 売買: {Side}, 金額: {Amount} USDC, 価格: {Price}, TP: {TpPrice}, SL: {SlPrice}",
+            symbol, side, amountToBuyUSDC, price, tpPrice, slPrice);
+
         var symbolInfo = await GetSymbolInfoAsync(symbol);
         var quantity = Math.Round(amountToBuyUSDC / price, symbolInfo.Symbol.QuantityDecimals);
 
@@ -114,8 +128,11 @@ class HyperLiquidExchange
         var orderResult = await ApiWalletClient.FuturesApi.Trading.PlaceMultipleOrdersAsync(orders);
         if (!orderResult.Success)
         {
+            _logger.Error("注文の作成に失敗しました。シンボル: {Symbol}, エラー: {Error}", symbol, orderResult.Error);
             throw new Exception($"Order placement failed: {orderResult.Error}");
         }
+
+        _logger.Information("注文を作成しました。シンボル: {Symbol}, 数量: {Quantity}", symbol, quantity);
 
         return new PlaceOrderAsyncResult(
             OrderId: orderResult.Data[0].Data.OrderId,
@@ -135,16 +152,22 @@ class HyperLiquidExchange
     /// <returns></returns>
     public async Task<PlaceOrderAsyncResult> PlaceOrderAsync(string symbol, OrderSide side, decimal amountToBuyUSDC, decimal tpRatio, decimal slRatio)
     {
+        _logger.Information("注文を作成します（比率指定）。シンボル: {Symbol}, 売買: {Side}, 金額: {Amount} USDC, TP比率: {TpRatio}, SL比率: {SlRatio}",
+            symbol, side, amountToBuyUSDC, tpRatio, slRatio);
+
         var symbolInfo = await GetSymbolInfoAsync(symbol);
 
         var tickerResult = await MainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
         if (!tickerResult.Success)
         {
+            _logger.Error("ティッカー情報の取得に失敗しました: {Error}", tickerResult.Error);
             throw new Exception($"Failed to get ticker info: {tickerResult.Error}");
         }
 
         var currentPrice = tickerResult.Data.Tickers.First(t => t.Symbol == symbol).MarkPrice;
         var leverage = symbolInfo.Leverage;
+
+        _logger.Debug("現在価格: {CurrentPrice}, レバレッジ: {Leverage}", currentPrice, leverage);
 
         // レバレッジを考慮した価格変動率を計算
         // 証拠金利益率 = 価格変動率 × レバレッジ
@@ -185,6 +208,7 @@ class HyperLiquidExchange
     /// <returns></returns>
     public async Task<HyperLiquidOrderResult> CloseOrderAsync(string symbol)
     {
+        _logger.Information("ポジションをクローズします。シンボル: {Symbol}", symbol);
         {
 
             // 現在の注文情報を取得
@@ -192,12 +216,14 @@ class HyperLiquidExchange
 
             if (!openOrdersResult.Success)
             {
+                _logger.Error("ポジション情報の取得に失敗しました: {Error}", openOrdersResult.Error);
                 throw new Exception($"Failed to get position info: {openOrdersResult.Error}");
             }
 
             var openOrders = openOrdersResult.Data.Where(x => x.Symbol == symbol).ToList();
             if (openOrders.Any())
             {
+                _logger.Debug("未決済注文をキャンセルします。件数: {Count}", openOrders.Count);
                 var cancelRequests = openOrders.Select(positions =>
                     new HyperLiquidCancelRequest(
                         symbol: symbol,
@@ -207,8 +233,10 @@ class HyperLiquidExchange
                 var cancelResult = await ApiWalletClient.FuturesApi.Trading.CancelOrdersAsync(cancelRequests);
                 if (!cancelResult.Success)
                 {
+                    _logger.Error("注文のキャンセルに失敗しました: {Error}", cancelResult.Error);
                     throw new Exception($"Failed to cancel orders: {cancelResult.Error}");
                 }
+                _logger.Debug("注文をキャンセルしました");
             }
         }
         {
@@ -221,6 +249,7 @@ class HyperLiquidExchange
                 var closeQuantity = symbolPosition.Position.PositionQuantity;
                 if (closeQuantity == null || closeQuantity == 0)
                 {
+                    _logger.Warning("クローズする数量がありません。シンボル: {Symbol}", symbol);
                     throw new Exception($"{symbol} : closeQuantity is null or zero");
                 }
 
@@ -231,10 +260,13 @@ class HyperLiquidExchange
                 var closeSide = isLong ? OrderSide.Sell : OrderSide.Buy;
                 var absQuantity = Math.Abs(closeQuantity.Value);
 
+                _logger.Debug("ポジションをクローズします。数量: {Quantity}, 方向: {Side}", absQuantity, closeSide);
+
                 // 現在価格で成行決済注文を出す
                 var tickerResult = await MainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
                 if (!tickerResult.Success)
                 {
+                    _logger.Error("ティッカー情報の取得に失敗しました: {Error}", tickerResult.Error);
                     throw new Exception($"Failed to get ticker info: {tickerResult.Error}");
                 }
 
@@ -250,16 +282,19 @@ class HyperLiquidExchange
 
                 if (marketCloseRequest.Success)
                 {
+                    _logger.Information("ポジションをクローズしました。シンボル: {Symbol}, 数量: {Quantity}", symbol, absQuantity);
                     return marketCloseRequest.Data;
                 }
                 else
                 {
+                    _logger.Error("成行決済注文の作成に失敗しました: {Error}", marketCloseRequest.Error);
                     throw new Exception($"Failed to place market close order: {marketCloseRequest.Error}");
                 }
             }
             else
             {
                 // ポジションなし
+                _logger.Debug("クローズするポジションがありません。シンボル: {Symbol}", symbol);
                 return new HyperLiquidOrderResult()
                 {
                 };
@@ -269,6 +304,8 @@ class HyperLiquidExchange
 
     public async Task<HyperLiquidKline[]> GetKlinesAsync(string symbol, KlineInterval interval, DateTime startDate, DateTime endDate, int limit = 300)
     {
+        _logger.Debug("ローソク足データを取得します。シンボル: {Symbol}, 期間: {StartDate} - {EndDate}", symbol, startDate, endDate);
+
         var klineResult = await MainWalletClient.FuturesApi.ExchangeData.GetKlinesAsync(
             symbol: symbol,
             interval: interval,
@@ -278,9 +315,11 @@ class HyperLiquidExchange
 
         if (!klineResult.Success)
         {
+            _logger.Error("ローソク足データの取得に失敗しました: {Error}", klineResult.Error);
             throw new Exception($"Failed to get klines: {klineResult.Error}");
         }
 
+        _logger.Debug("ローソク足データを取得しました。件数: {Count}", klineResult.Data.Length);
         return klineResult.Data;
     }
 

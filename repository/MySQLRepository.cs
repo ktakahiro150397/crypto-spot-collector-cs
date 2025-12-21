@@ -1,12 +1,15 @@
 using MySqlConnector;
+using Serilog;
 
 public class MySQLRepository
 {
     private readonly string _connectionString;
+    private static readonly ILogger _logger = Log.ForContext<MySQLRepository>();
 
     public MySQLRepository(string connectionString)
     {
         _connectionString = connectionString;
+        _logger.Debug("MySQLRepositoryを初期化しました");
     }
 
     /// <summary>
@@ -18,12 +21,12 @@ public class MySQLRepository
         {
             await using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
-            Console.WriteLine("MySQL接続成功！");
+            _logger.Information("MySQL接続成功");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"MySQL接続エラー: {ex.Message}");
+            _logger.Error(ex, "MySQL接続エラー");
             return false;
         }
     }
@@ -118,6 +121,8 @@ public class MySQLRepository
     /// </summary>
     public async Task AddOrUpdateOhlcvDataAsync(string symbol, List<OhlcvData> ohlcvData)
     {
+        _logger.Debug("OHLCVデータの保存を開始します。シンボル: {Symbol}, 件数: {Count}", symbol, ohlcvData.Count);
+
         await using var connection = new MySqlConnection(_connectionString);
         await connection.OpenAsync();
 
@@ -125,6 +130,7 @@ public class MySQLRepository
         var currency = await GetCryptocurrencyBySymbolAsync(symbol: symbol);
         if (currency == null)
         {
+            _logger.Information("新しいシンボルを登録します: {Symbol}", symbol);
             // 存在しない場合は新規追加
             await using (var insertCurrencyCmd = new MySqlCommand(
                 "INSERT INTO cryptocurrencies (symbol, name, created_at, updated_at) VALUES (@symbol, @name, NOW(), NOW())",
@@ -139,6 +145,7 @@ public class MySQLRepository
 
         if (currency == null)
         {
+            _logger.Error("暗号通貨レコードの取得または作成に失敗しました: {Symbol}", symbol);
             throw new InvalidOperationException("Failed to retrieve or create cryptocurrency record.");
         }
 
@@ -167,10 +174,13 @@ public class MySQLRepository
             await command.ExecuteNonQueryAsync();
         }
 
+        _logger.Information("OHLCVデータを保存しました。シンボル: {Symbol}, 件数: {Count}", symbol, ohlcvData.Count);
     }
 
     public async Task<List<OhlcvData>> GetOhlcvDataBySymbolAsync(string symbol, DateTime startDate, DateTime endDate)
     {
+        _logger.Debug("OHLCVデータを取得します。シンボル: {Symbol}, 期間: {StartDate} - {EndDate}", symbol, startDate, endDate);
+
         var ohlcvDataList = new List<OhlcvData>();
 
         await using var connection = new MySqlConnection(_connectionString);
@@ -179,6 +189,7 @@ public class MySQLRepository
         var currency = await GetCryptocurrencyBySymbolAsync(symbol);
         if (currency == null)
         {
+            _logger.Warning("指定されたシンボルが見つかりません: {Symbol}", symbol);
             return ohlcvDataList; // 空のリストを返す
         }
 
@@ -217,6 +228,8 @@ public class MySQLRepository
     /// </summary>
     public async Task<List<OhlcvData>> GetLatestOhlcvDataBySymbolAsync(string symbol, int count)
     {
+        _logger.Debug("最新OHLCVデータを取得します。シンボル: {Symbol}, 件数: {Count}", symbol, count);
+
         var ohlcvDataList = new List<OhlcvData>();
 
         await using var connection = new MySqlConnection(_connectionString);
@@ -225,6 +238,7 @@ public class MySQLRepository
         var currency = await GetCryptocurrencyBySymbolAsync(symbol);
         if (currency == null)
         {
+            _logger.Warning("指定されたシンボルが見つかりません: {Symbol}", symbol);
             return ohlcvDataList; // 空のリストを返す
         }
 

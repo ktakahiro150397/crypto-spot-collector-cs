@@ -1,4 +1,5 @@
 using HyperLiquid.Net.Enums;
+using Serilog;
 
 /// <summary>
 /// OHLCVデータの取得・集計を行うリポジトリ
@@ -7,6 +8,7 @@ using HyperLiquid.Net.Enums;
 public class OhlcvDataRepository
 {
     private readonly MySQLRepository _repository;
+    private static readonly ILogger _logger = Log.ForContext<OhlcvDataRepository>();
 
     /// <summary>
     /// DBに保存されているベースインターバル（分）のキャッシュ
@@ -17,6 +19,7 @@ public class OhlcvDataRepository
     public OhlcvDataRepository(MySQLRepository repository)
     {
         _repository = repository;
+        _logger.Debug("OhlcvDataRepositoryを初期化しました");
     }
 
     /// <summary>
@@ -29,23 +32,28 @@ public class OhlcvDataRepository
     /// <returns>集計されたOHLCVデータ</returns>
     public async Task<List<OhlcvData>> GetLatestOhlcvDataAsync(string symbol, KlineInterval interval, int count, bool isExceptLastIncompleteCandle = true)
     {
+        _logger.Debug("OHLCVデータを取得します。シンボル: {Symbol}, インターバル: {Interval}, 件数: {Count}", symbol, interval, count);
+
         var targetMinutes = GetIntervalMinutes(interval);
         var baseIntervalMinutes = await GetBaseIntervalMinutesAsync(symbol);
 
         if (baseIntervalMinutes <= 0)
         {
+            _logger.Warning("ベースインターバルが取得できません。シンボル: {Symbol}", symbol);
             return new List<OhlcvData>(); // データがない場合
         }
 
         // バリデーション
         if (targetMinutes < baseIntervalMinutes)
         {
+            _logger.Error("インターバルが小さすぎます。要求: {TargetMinutes}分, ベース: {BaseMinutes}分", targetMinutes, baseIntervalMinutes);
             throw new ArgumentException(
                 $"指定されたインターバル({interval}: {targetMinutes}分)はDBの基準インターバル({baseIntervalMinutes}分)より小さいため対応できません。");
         }
 
         if (targetMinutes % baseIntervalMinutes != 0)
         {
+            _logger.Error("インターバルがベースの倍数ではありません。要求: {TargetMinutes}分, ベース: {BaseMinutes}分", targetMinutes, baseIntervalMinutes);
             throw new ArgumentException(
                 $"指定されたインターバル({interval}: {targetMinutes}分)はDBの基準インターバル({baseIntervalMinutes}分)の倍数である必要があります。");
         }
@@ -61,6 +69,7 @@ public class OhlcvDataRepository
 
         if (baseData.Count == 0)
         {
+            _logger.Debug("ベースデータが見つかりません。シンボル: {Symbol}", symbol);
             return new List<OhlcvData>();
         }
 
@@ -77,6 +86,8 @@ public class OhlcvDataRepository
                 aggregatedData = aggregatedData.Take(aggregatedData.Count - 1).ToList();
             }
         }
+
+        _logger.Debug("OHLCVデータを取得しました。シンボル: {Symbol}, 件数: {Count}", symbol, aggregatedData.Count);
 
         // count件に制限
         return aggregatedData.TakeLast(count).ToList();

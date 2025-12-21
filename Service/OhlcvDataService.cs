@@ -1,5 +1,5 @@
-
 using HyperLiquid.Net.Enums;
+using Serilog;
 
 
 /// <summary>
@@ -12,6 +12,7 @@ public class OhlcvDataService : IDisposable
     private readonly string _symbol;
     private readonly TimeSpan _refreshInterval;
     private readonly object _cacheLock = new();
+    private static readonly ILogger _logger = Log.ForContext<OhlcvDataService>();
 
     private List<OhlcvData> _ohlcvDataCache = new();
     private Timer? _refreshTimer;
@@ -53,6 +54,9 @@ public class OhlcvDataService : IDisposable
         _interval = interval;
         _refreshInterval = refreshInterval ?? TimeSpan.FromMinutes(1);
         DataCount = dataCount;
+
+        _logger.Debug("OhlcvDataServiceを初期化しました。シンボル: {Symbol}, インターバル: {Interval}, 更新間隔: {RefreshInterval}秒",
+            symbol, interval, _refreshInterval.TotalSeconds);
     }
 
     /// <summary>
@@ -60,6 +64,8 @@ public class OhlcvDataService : IDisposable
     /// </summary>
     public async Task StartAsync()
     {
+        _logger.Information("OHLCVキャッシュの定期更新を開始します。シンボル: {Symbol}", _symbol);
+
         // 初回のデータ取得
         await RefreshCacheAsync();
 
@@ -76,6 +82,7 @@ public class OhlcvDataService : IDisposable
     /// </summary>
     public void Stop()
     {
+        _logger.Information("OHLCVキャッシュの定期更新を停止します。シンボル: {Symbol}", _symbol);
         _refreshTimer?.Change(Timeout.Infinite, Timeout.Infinite);
         _refreshTimer?.Dispose();
         _refreshTimer = null;
@@ -88,6 +95,8 @@ public class OhlcvDataService : IDisposable
     {
         try
         {
+            _logger.Debug("OHLCVキャッシュを更新中。シンボル: {Symbol}", _symbol);
+
             // OhlcvDataRepositoryを使用してデータを取得（集計も含む）
             var aggregatedData = await _dataRepository.GetLatestOhlcvDataAsync(_symbol, _interval, DataCount);
 
@@ -96,12 +105,14 @@ public class OhlcvDataService : IDisposable
                 _ohlcvDataCache = aggregatedData;
             }
 
+            _logger.Debug("OHLCVキャッシュを更新しました。シンボル: {Symbol}, 件数: {Count}", _symbol, aggregatedData.Count);
+
             // イベントを発火
             OnDataUpdated(new OhlcvDataUpdatedEventArgs(aggregatedData.AsReadOnly()));
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"キャッシュ更新エラー: {ex.Message}");
+            _logger.Error(ex, "OHLCVキャッシュ更新エラー。シンボル: {Symbol}", _symbol);
         }
     }
 
