@@ -42,38 +42,52 @@ var restClient = new HyperLiquidRestClient(options =>
 var exchange = new HyperLiquidExchange(restClientMainWallet, restClient);
 
 var candle = await exchange.GetKlinesAsync("ETH",
-KlineInterval.ThirtyMinutes,
+KlineInterval.OneMinute,
 startDate: DateTime.UtcNow.AddMonths(-3),
 endDate: DateTime.UtcNow);
 Console.WriteLine($"Candle : {candle.Count()}");
 
 var repo = new MySQLRepository(config.ConnectionString);
-// repo.AddOrUpdateOhlcvDataAsync("ETH", candle.Select(c => new OhlcvData
-// {
-//     OpenPrice = c.OpenPrice,
-//     HighPrice = c.HighPrice,
-//     LowPrice = c.LowPrice,
-//     ClosePrice = c.ClosePrice,
-//     Volume = c.Volume,
-//     TimestampUtc = c.OpenTime,
-//     CreatedAt = DateTime.UtcNow
-// }).ToList()).Wait();
-// Console.WriteLine("Inserted candle data into MySQL");
-
-var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
-Console.WriteLine($"Fetched Candle from MySQL: {fetchedCandle.Count}");
-
-// ATR Trailling Stop
-var atrResults = fetchedCandle.GetAtrStop().ToList();
-foreach (var result in atrResults.TakeLast(10))  // 最後の10件だけコンソール出力
+repo.AddOrUpdateOhlcvDataAsync("ETH", candle.Select(c => new OhlcvData
 {
-    Console.WriteLine($"{result.Date}: {result.AtrStop} : {result.BuyStop} : {result.SellStop}");
+    OpenPrice = c.OpenPrice,
+    HighPrice = c.HighPrice,
+    LowPrice = c.LowPrice,
+    ClosePrice = c.ClosePrice,
+    Volume = c.Volume,
+    TimestampUtc = c.OpenTime,
+    CreatedAt = DateTime.UtcNow
+}).ToList()).Wait();
+Console.WriteLine("Inserted candle data into MySQL");
+
+var dataRepo = new OhlcvDataRepository(repo);
+var thirtyMinData = await dataRepo.GetLatestOhlcvDataAsync(
+    symbol: "ETH",
+    interval: KlineInterval.ThirtyMinutes,
+    count: 20
+);
+
+Console.WriteLine($"30分足データ取得件数: {thirtyMinData.Count}");
+foreach (var data in thirtyMinData)
+{
+    Console.WriteLine($"{data.TimestampUtc}: O={data.OpenPrice}, H={data.HighPrice}, L={data.LowPrice}, C={data.ClosePrice}, V={data.Volume}");
 }
 
-// ATR Trailing Stopのグラフを生成（直近7日間のみ表示）
-Console.WriteLine("\n=== ATR Trailing Stop グラフ生成 ===");
-AtrChartGenerator.SaveAtrStopChart(fetchedCandle, atrResults, "ETH", "atr_trailing_stop.png", displayDays: 7, width: 1920, height: 1080);
-AtrChartGenerator.SaveCandlestickWithAtrStop(fetchedCandle, atrResults, "ETH", "candlestick_atr_stop.png", displayDays: 7, width: 1920, height: 1080);
+
+// var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
+// Console.WriteLine($"Fetched Candle from MySQL: {fetchedCandle.Count}");
+
+// // ATR Trailling Stop
+// var atrResults = fetchedCandle.GetAtrStop().ToList();
+// foreach (var result in atrResults.TakeLast(10))  // 最後の10件だけコンソール出力
+// {
+//     Console.WriteLine($"{result.Date}: {result.AtrStop} : {result.BuyStop} : {result.SellStop}");
+// }
+
+// // ATR Trailing Stopのグラフを生成（直近7日間のみ表示）
+// Console.WriteLine("\n=== ATR Trailing Stop グラフ生成 ===");
+// AtrChartGenerator.SaveAtrStopChart(fetchedCandle, atrResults, "ETH", "atr_trailing_stop.png", displayDays: 7, width: 1920, height: 1080);
+// AtrChartGenerator.SaveCandlestickWithAtrStop(fetchedCandle, atrResults, "ETH", "candlestick_atr_stop.png", displayDays: 7, width: 1920, height: 1080);
 
 // var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
 // Console.WriteLine($"Long Order : {longResult}");
