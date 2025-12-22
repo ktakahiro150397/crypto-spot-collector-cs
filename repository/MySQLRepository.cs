@@ -149,32 +149,41 @@ public class MySQLRepository
             throw new InvalidOperationException("Failed to retrieve or create cryptocurrency record.");
         }
 
-        // OHLCVデータを挿入または更新
-        foreach (var data in ohlcvData)
+        // OHLCVデータをバルクインサート（重複時は更新）
+        const int batchSize = 1000; // 1回のクエリで挿入する最大件数
+        for (int i = 0; i < ohlcvData.Count; i += batchSize)
         {
-            await using var command = new MySqlCommand(
-                @"INSERT INTO ohlcv_data (cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at)
-                  VALUES (@cryptocurrencyId, @openPrice, @highPrice, @lowPrice, @closePrice, @volume, @timestampUtc, NOW())
+            var batch = ohlcvData.Skip(i).Take(batchSize).ToList();
+
+            var valuePlaceholders = new List<string>();
+            await using var command = new MySqlCommand();
+            command.Connection = connection;
+
+            for (int j = 0; j < batch.Count; j++)
+            {
+                valuePlaceholders.Add($"(@cryptocurrencyId{j}, @openPrice{j}, @highPrice{j}, @lowPrice{j}, @closePrice{j}, @volume{j}, @timestampUtc{j}, NOW())");
+                command.Parameters.AddWithValue($"@cryptocurrencyId{j}", currency.Id);
+                command.Parameters.AddWithValue($"@openPrice{j}", batch[j].OpenPrice);
+                command.Parameters.AddWithValue($"@highPrice{j}", batch[j].HighPrice);
+                command.Parameters.AddWithValue($"@lowPrice{j}", batch[j].LowPrice);
+                command.Parameters.AddWithValue($"@closePrice{j}", batch[j].ClosePrice);
+                command.Parameters.AddWithValue($"@volume{j}", batch[j].Volume);
+                command.Parameters.AddWithValue($"@timestampUtc{j}", batch[j].TimestampUtc);
+            }
+
+            command.CommandText = $@"INSERT INTO ohlcv_data (cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at)
+                  VALUES {string.Join(", ", valuePlaceholders)}
                   ON DUPLICATE KEY UPDATE
                       open_price = VALUES(open_price),
                       high_price = VALUES(high_price),
                       low_price = VALUES(low_price),
                       close_price = VALUES(close_price),
-                      volume = VALUES(volume)",
-                connection);
-
-            command.Parameters.AddWithValue("@cryptocurrencyId", currency.Id);
-            command.Parameters.AddWithValue("@openPrice", data.OpenPrice);
-            command.Parameters.AddWithValue("@highPrice", data.HighPrice);
-            command.Parameters.AddWithValue("@lowPrice", data.LowPrice);
-            command.Parameters.AddWithValue("@closePrice", data.ClosePrice);
-            command.Parameters.AddWithValue("@volume", data.Volume);
-            command.Parameters.AddWithValue("@timestampUtc", data.TimestampUtc);
+                      volume = VALUES(volume)";
 
             await command.ExecuteNonQueryAsync();
         }
 
-        _logger.Information("OHLCVデータを保存しました。シンボル: {Symbol}, 件数: {Count}", symbol, ohlcvData.Count);
+        _logger.Information("OHLCVデータをバルクインサートしました。シンボル: {Symbol}, 件数: {Count}", symbol, ohlcvData.Count);
     }
 
     public async Task<List<OhlcvData>> GetOhlcvDataBySymbolAsync(string symbol, DateTime startDate, DateTime endDate)
