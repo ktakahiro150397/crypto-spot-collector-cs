@@ -8,6 +8,7 @@ using Serilog;
 public class OhlcvDataService : IDisposable
 {
     private readonly OhlcvDataRepository _dataRepository;
+    private readonly HyperLiquidExchange _exchange;
     private readonly KlineInterval _interval;
     private readonly string _symbol;
     private readonly TimeSpan _refreshInterval;
@@ -17,6 +18,8 @@ public class OhlcvDataService : IDisposable
     private List<OhlcvData> _ohlcvDataCache = new();
     private Timer? _refreshTimer;
     private bool _disposed = false;
+
+    private const int FetchDataCount = 10;
 
     /// <summary>
     /// データをキャッシュする足の本数
@@ -44,12 +47,14 @@ public class OhlcvDataService : IDisposable
 
     public OhlcvDataService(
         OhlcvDataRepository dataRepository,
+        HyperLiquidExchange exchange,
         string symbol,
         KlineInterval interval,
         TimeSpan? refreshInterval = null,
         int dataCount = 250)
     {
         _dataRepository = dataRepository;
+        _exchange = exchange;
         _symbol = symbol;
         _interval = interval;
         _refreshInterval = refreshInterval ?? TimeSpan.FromMinutes(1);
@@ -65,6 +70,11 @@ public class OhlcvDataService : IDisposable
     public async Task StartAsync()
     {
         _logger.Information("OHLCVキャッシュの定期更新を開始します。シンボル: {Symbol}", _symbol);
+
+        // 現在時刻の0秒まで待機する
+        var delay = TimeSpan.FromSeconds(60 - DateTime.UtcNow.Second);
+        _logger.Debug("初回更新まで待機中です: {Delay}秒", delay.TotalSeconds);
+        await Task.Delay(delay);
 
         // 初回のデータ取得
         await RefreshCacheAsync();
@@ -95,8 +105,28 @@ public class OhlcvDataService : IDisposable
     {
         try
         {
-            _logger.Debug("OHLCVキャッシュを更新中。シンボル: {Symbol}", _symbol);
+            _logger.Debug("OHLCVデータを取得中。シンボル: {Symbol}", _symbol);
+            var intervalSeconds = (int)_interval;
+            var candle = await _exchange.GetKlinesAsync(
+                _symbol,
+                _interval,
+                startDate: DateTime.UtcNow.AddSeconds(-intervalSeconds * FetchDataCount),
+                endDate: DateTime.UtcNow);
+            _logger.Debug("OHLCVデータを取得しました。シンボル: {Symbol}, 件数: {Count}", _symbol, candle.Count());
 
+            await _dataRepository.AddOrUpdateOhlcvDataAsync(_symbol, candle.Select(c => new OhlcvData
+            {
+                OpenPrice = c.OpenPrice,
+                HighPrice = c.HighPrice,
+                LowPrice = c.LowPrice,
+                ClosePrice = c.ClosePrice,
+                Volume = c.Volume,
+                TimestampUtc = c.OpenTime,
+                CreatedAt = DateTime.UtcNow
+            }).ToList());
+            _logger.Debug("OHLCVデータをDBに保存しました。シンボル: {Symbol}", _symbol);
+
+            _logger.Debug("OHLCVキャッシュを更新中。シンボル: {Symbol}", _symbol);
             // OhlcvDataRepositoryを使用してデータを取得（集計も含む）
             var aggregatedData = await _dataRepository.GetLatestOhlcvDataAsync(_symbol, _interval, DataCount);
 

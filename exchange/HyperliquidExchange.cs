@@ -14,7 +14,7 @@ record SymbolWithLeverage(
     MarginType MarginType
 );
 
-class HyperLiquidExchange
+public class HyperLiquidExchange
 {
     private HyperLiquidRestClient MainWalletClient { get; }
     private HyperLiquidRestClient ApiWalletClient { get; }

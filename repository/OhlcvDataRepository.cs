@@ -188,6 +188,14 @@ public class OhlcvDataRepository
         _baseIntervalCache.Clear();
     }
 
+    public Task AddOrUpdateOhlcvDataAsync(string symbol, List<OhlcvData> data)
+    {
+        return _repository.AddOrUpdateOhlcvDataAsync(
+            symbol: symbol,
+            ohlcvData: data
+        );
+    }
+
     /// <summary>
     /// OHLCVデータを指定されたインターバル（分）に集計する
     /// </summary>

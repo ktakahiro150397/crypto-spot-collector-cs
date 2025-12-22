@@ -9,7 +9,7 @@ using Logging;
 using Serilog;
 
 // ログシステムの初期化
-LoggingConfiguration.Initialize();
+LoggingConfiguration.Initialize(minimumLevel: Serilog.Events.LogEventLevel.Debug);
 
 try
 {
@@ -55,30 +55,58 @@ try
     Console.WriteLine($"Candle : {candle.Count()}");
 
     var repo = new MySQLRepository(config.ConnectionString);
-    repo.AddOrUpdateOhlcvDataAsync("ETH", candle.Select(c => new OhlcvData
-    {
-        OpenPrice = c.OpenPrice,
-        HighPrice = c.HighPrice,
-        LowPrice = c.LowPrice,
-        ClosePrice = c.ClosePrice,
-        Volume = c.Volume,
-        TimestampUtc = c.OpenTime,
-        CreatedAt = DateTime.UtcNow
-    }).ToList()).Wait();
-    Console.WriteLine("Inserted candle data into MySQL");
+    // repo.AddOrUpdateOhlcvDataAsync("ETH", candle.Select(c => new OhlcvData
+    // {
+    //     OpenPrice = c.OpenPrice,
+    //     HighPrice = c.HighPrice,
+    //     LowPrice = c.LowPrice,
+    //     ClosePrice = c.ClosePrice,
+    //     Volume = c.Volume,
+    //     TimestampUtc = c.OpenTime,
+    //     CreatedAt = DateTime.UtcNow
+    // }).ToList()).Wait();
+    // Console.WriteLine("Inserted candle data into MySQL");
 
     var dataRepo = new OhlcvDataRepository(repo);
-    var thirtyMinData = await dataRepo.GetLatestOhlcvDataAsync(
+    // var thirtyMinData = await dataRepo.GetLatestOhlcvDataAsync(
+    //     symbol: "ETH",
+    //     interval: KlineInterval.ThirtyMinutes,
+    //     count: 20
+    // );
+
+    // Console.WriteLine($"30分足データ取得件数: {thirtyMinData.Count}");
+    // foreach (var data in thirtyMinData)
+    // {
+    //     Console.WriteLine($"{data.TimestampUtc}: O={data.OpenPrice}, H={data.HighPrice}, L={data.LowPrice}, C={data.ClosePrice}, V={data.Volume}");
+    // }
+
+    var dataService = new OhlcvDataService(
         symbol: "ETH",
-        interval: KlineInterval.ThirtyMinutes,
-        count: 20
+        interval: KlineInterval.FiveMinutes,
+        dataRepository: dataRepo,
+        exchange: exchange,
+        refreshInterval: TimeSpan.FromMinutes(1),
+        dataCount: 100
     );
 
-    Console.WriteLine($"30分足データ取得件数: {thirtyMinData.Count}");
-    foreach (var data in thirtyMinData)
+    dataService.DataUpdated += (s, e) =>
     {
-        Console.WriteLine($"{data.TimestampUtc}: O={data.OpenPrice}, H={data.HighPrice}, L={data.LowPrice}, C={data.ClosePrice}, V={data.Volume}");
-    }
+        Log.Information("OHLCVデータが更新されました。件数: {DataCount}, 最新データ日時: {LatestTimestamp}, 終値: {LatestClosePrice}",
+            e.UpdatedData.Count,
+            e.UpdatedData.Last().TimestampUtc,
+            e.UpdatedData.Last().ClosePrice);
+
+        // データ状態を表示
+        var data = dataService.CachedData.TakeLast(5);
+        Console.WriteLine("最新のOHLCVデータ:");
+        foreach (var item in data)
+        {
+            Console.WriteLine($"{item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+        }
+    };
+
+    await dataService.StartAsync();
+    await Task.Delay(TimeSpan.FromMinutes(10)); // 3分間待機してデータ更新を観察
 
 
     // var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);

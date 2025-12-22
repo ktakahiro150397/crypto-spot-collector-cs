@@ -1,6 +1,6 @@
 
 
-class PlaceOrderAsyncResult
+public class PlaceOrderAsyncResult
 {
     public long OrderId { get; }
     public long TakeProfitOrderId { get; }
