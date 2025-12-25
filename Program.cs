@@ -97,16 +97,51 @@ try
             e.UpdatedData.Last().ClosePrice);
 
         // データ状態を表示
-        var data = dataService.CachedData.TakeLast(5);
-        Console.WriteLine("最新のOHLCVデータ:");
-        foreach (var item in data)
-        {
-            Console.WriteLine($"{item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
-        }
+        // var data = dataService.CachedData.TakeLast(5);
+        // Console.WriteLine("最新のOHLCVデータ:");
+        // foreach (var item in data)
+        // {
+        //     Console.WriteLine($"{item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+        // }
     };
 
-    await dataService.StartAsync();
+
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            Log.Information("OHLCVデータサービスを起動します。");
+            await dataService.StartAsync();
+            Log.Information("OHLCVデータサービスが起動しました。");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "OHLCVデータサービスの起動中にエラーが発生しました");
+        }
+    });
+
+    // この時点でのデータを表示してみる
+    Console.WriteLine("=== 初回データ取得後のOHLCVデータ ===");
+    foreach (var item in dataService.CachedData.Take(10))
+    {
+        Console.WriteLine($"1 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+    }
+
+    await Task.Delay(TimeSpan.FromMinutes(5)); // 3分間待機してデータ更新を観察
+    Console.WriteLine("=== 5分後のOHLCVデータ ===");
+    foreach (var item in dataService.CachedData.Take(10))
+    {
+        Console.WriteLine($"2 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+    }
+
     await Task.Delay(TimeSpan.FromMinutes(10)); // 3分間待機してデータ更新を観察
+
+    // データが更新されているかどうかを確認
+    Console.WriteLine("=== 10分後のOHLCVデータ ===");
+    foreach (var item in dataService.CachedData.Take(10))
+    {
+        Console.WriteLine($"3 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+    }
 
 
     // var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
