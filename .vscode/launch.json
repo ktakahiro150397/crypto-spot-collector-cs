@@ -11,7 +11,10 @@
             "preLaunchTask": "build",
             // ターゲット フレームワークを変更した場合は、プログラム パスを更新するようにしてください。
             "program": "${workspaceFolder}/bin/Debug/net9.0/crypto-spot-collector-cs.dll",
-            "args": [],
+            "args": [
+                "--mode",
+                "backtest"
+            ],
             "cwd": "${workspaceFolder}",
             // 'console' フィールドの詳細については、https://aka.ms/VSCode-CS-LaunchJson-Console を参照してください
             "console": "internalConsole",
