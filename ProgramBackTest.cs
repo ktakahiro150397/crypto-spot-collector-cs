@@ -123,6 +123,10 @@ public class ProgramBackTest
         // バックテスト実行処理
         foreach (var date in _backTestDateList)
         {
+            // ストップロスの実行
+            // TODO : 同一時間足ごとに実行されているため結果不正確な可能性あり
+            await ExecuteStopLossAsync(backTestPositions, symbol, date);
+
             // 各日時点でのOHLCVデータを取得
             var ohlcvData = await _repository.GetOhlcvDataBySymbolAsync(symbol,
                 startDate: date,
@@ -137,12 +141,13 @@ public class ProgramBackTest
             if (signalIsLong)
             {
                 // ロングポジションを追加
-                var positionItem = new BackTestPositionItem
+                var positionItem = new PerpetualPositionItem
                 {
                     OpenDate = date,
                     OpenPrice = ohlcvData.First().ClosePrice,
                     Quantity = quantity,
-                    side = SharedPositionSide.Long
+                    side = SharedPositionSide.Long,
+                    StopLossPrice = ohlcvData.First().ClosePrice * 1.1m // 5%のストップロス設定
                 };
                 backTestPositions.AddPositionItem(positionItem);
                 Log.Debug("ロングポジションを追加しました。日時: {Date}, 価格: {Price}", date, ohlcvData.First().ClosePrice);
@@ -150,12 +155,13 @@ public class ProgramBackTest
             else if (signalIsShort)
             {
                 // ショートポジションを追加
-                var positionItem = new BackTestPositionItem
+                var positionItem = new PerpetualPositionItem
                 {
                     OpenDate = date,
                     OpenPrice = ohlcvData.First().ClosePrice,
                     Quantity = quantity,
-                    side = SharedPositionSide.Short
+                    side = SharedPositionSide.Short,
+                    StopLossPrice = ohlcvData.First().ClosePrice * 1.00m // 5%のストップロス設定
                 };
                 backTestPositions.AddPositionItem(positionItem);
                 Log.Debug("ショートポジションを追加しました。日時: {Date}, 価格: {Price}", date, ohlcvData.First().ClosePrice);
@@ -165,21 +171,57 @@ public class ProgramBackTest
         // バックテスト結果のサマリーを出力
         backTestPositions.OutputPositionSummary();
     }
-}
 
-public class BackTestPosition
-{
-    public List<BackTestPositionItem> PositionItems { get; set; } = new List<BackTestPositionItem>();
-
-    public decimal GetTotalPnl
+    private async Task ExecuteStopLossAsync(BackTestPosition position, string symbol, DateTime date)
     {
-        get
+        // 対象日付のclose価格を取得し、ストップロス判定を行う
+        var ohlcvData = await _repository.GetOhlcvDataBySymbolAsync(symbol,
+            startDate: date,
+            endDate: date);
+
+        if (ohlcvData.Count == 0)
         {
-            return PositionItems.Sum(item => item.GetPnl);
+            Log.Warning("OHLCVデータが存在しません。日時: {Date}", date);
+            return;
+        }
+
+        var closePrice = ohlcvData.First().ClosePrice;
+        Log.Debug("ストップロス判定日時: {Date}, Close価格: {ClosePrice}", date, closePrice);
+
+        foreach (var item in position.PositionItems)
+        {
+            if (item.StopLossPrice.HasValue && !item.CloseDate.HasValue)
+            {
+                if (item.side == SharedPositionSide.Long && closePrice <= item.StopLossPrice.Value)
+                {
+                    // ロングポジションのストップロス発動
+                    item.CloseDate = date;
+                    item.ClosePrice = closePrice;
+                    Log.Information("ロングポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, closePrice);
+                }
+                else if (item.side == SharedPositionSide.Short && closePrice >= item.StopLossPrice.Value)
+                {
+                    // ショートポジションのストップロス発動
+                    item.CloseDate = date;
+                    item.ClosePrice = closePrice;
+                    Log.Information("ショートポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, closePrice);
+                }
+            }
         }
     }
+}
 
-    public void AddPositionItem(BackTestPositionItem item)
+/// <summary>
+/// バックテスト用永久先物ポジション情報
+/// </summary>
+public class BackTestPosition : PerpetualPosition
+{
+
+    /// <summary>
+    /// ポジションアイテムを追加する
+    /// </summary>
+    /// <param name="item"></param>
+    public void AddPositionItem(PerpetualPositionItem item)
     {
         // 同一サイドのポジションがすでに存在する場合、数量を加算する
         var existingItem = PositionItems
@@ -232,34 +274,5 @@ public class BackTestPosition
                 item.GetPnl);
         }
         Log.Information("総合PnL: {TotalPnl}", GetTotalPnl);
-    }
-}
-
-public class BackTestPositionItem
-{
-    public DateTime OpenDate { get; set; }
-    public decimal OpenPrice { get; set; }
-    public DateTime? CloseDate { get; set; }
-    public decimal? ClosePrice { get; set; }
-    public decimal Quantity { get; set; }
-    public SharedPositionSide side { get; set; }
-
-    public decimal GetPnl
-    {
-        get
-        {
-            if (ClosePrice.HasValue)
-            {
-                if (side == SharedPositionSide.Long)
-                {
-                    return (ClosePrice.Value - OpenPrice) * Quantity;
-                }
-                else if (side == SharedPositionSide.Short)
-                {
-                    return (OpenPrice - ClosePrice.Value) * Quantity;
-                }
-            }
-            return 0m;
-        }
     }
 }
