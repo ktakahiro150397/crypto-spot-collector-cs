@@ -144,7 +144,7 @@ public static class ProgramTest
         }
 
 
-        // var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
+        //  var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
         // Console.WriteLine($"Fetched Candle from MySQL: {fetchedCandle.Count}");
 
         // // ATR Trailling Stop

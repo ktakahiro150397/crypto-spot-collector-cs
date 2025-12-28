@@ -205,7 +205,8 @@ public class MySQLRepository
         await using var command = new MySqlCommand(
             @"SELECT id, cryptocurrency_id, open_price, high_price, low_price, close_price, volume, timestamp_utc, created_at
               FROM ohlcv_data
-              WHERE cryptocurrency_id = @cryptocurrencyId AND timestamp_utc BETWEEN @startDate AND @endDate",
+              WHERE cryptocurrency_id = @cryptocurrencyId AND timestamp_utc BETWEEN @startDate AND @endDate
+              ORDER BY timestamp_utc DESC",
             connection);
 
         command.Parameters.AddWithValue("@cryptocurrencyId", currency.Id);
@@ -282,5 +283,32 @@ public class MySQLRepository
         // 時系列順（古い順）に並び替えて返す
         ohlcvDataList.Reverse();
         return ohlcvDataList;
+    }
+
+    /// <summary>
+    /// 指定したシンボルのOHLCVデータをすべて削除する
+    /// </summary>
+    public async Task<int> DeleteOhlcvDataBySymbolAsync(string symbol)
+    {
+        _logger.Debug("OHLCVデータを削除します。シンボル: {Symbol}", symbol);
+
+        await using var connection = new MySqlConnection(_connectionString);
+        await connection.OpenAsync();
+
+        var currency = await GetCryptocurrencyBySymbolAsync(symbol);
+        if (currency == null)
+        {
+            _logger.Warning("指定されたシンボルが見つかりません: {Symbol}", symbol);
+            return 0;
+        }
+
+        await using var command = new MySqlCommand(
+            "DELETE FROM ohlcv_data WHERE cryptocurrency_id = @cryptocurrencyId",
+            connection);
+        command.Parameters.AddWithValue("@cryptocurrencyId", currency.Id);
+
+        int rowsAffected = await command.ExecuteNonQueryAsync();
+        _logger.Information("OHLCVデータを削除しました。シンボル: {Symbol}, 件数: {Count}", symbol, rowsAffected);
+        return rowsAffected;
     }
 }

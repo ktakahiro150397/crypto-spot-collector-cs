@@ -38,6 +38,8 @@ public class ProgramBackTest
 
     private const int BuyUSDC = 200;
 
+    private const int ohlcvDataFetchCount = 250;
+
     public ProgramBackTest(DateTime startDate, DateTime endDate, KlineInterval interval)
     {
         _startDate = startDate;
@@ -96,13 +98,15 @@ public class ProgramBackTest
     {
         // 初期化処理
         // 1. データを取得
+        var fetchStartDate = _startDate.AddMinutes(-ohlcvDataFetchCount * OhlcvDataRepository.GetIntervalMinutes(_interval));
         var candle = await _exchange.GetKlinesAsync(symbol,
         _interval,
-        startDate: _startDate,
+        startDate: fetchStartDate,
         endDate: _endDate);
         Log.Debug("Candle Count: {count}", candle.Count());
 
         // 2. データをDBに保存
+        await _repository.DeleteOhlcvDataBySymbolAsync(symbol);
         await _repository.AddOrUpdateOhlcvDataAsync(symbol, candle.Select(c => new OhlcvData
         {
             OpenPrice = c.OpenPrice,
@@ -113,12 +117,15 @@ public class ProgramBackTest
             TimestampUtc = c.OpenTime,
             CreatedAt = DateTime.UtcNow
         }).ToList());
-        Log.Debug("OHLCVデータをDBに保存しました。シンボル: {Symbol}", symbol);
+        Log.Debug("OHLCVデータをDBに保存しました。シンボル: {Symbol}, 開始期間: {startDate}, 終了期間: {endDate}", symbol, fetchStartDate, _endDate);
     }
 
     private async Task ExecuteBackTestAsync(string symbol)
     {
         var backTestPositions = new BackTestPosition();
+
+        // テストするストラテジ
+        var atrTrailingStop = new ATRTrailingStopStrategy(14, 3.0m);
 
         // バックテスト実行処理
         foreach (var date in _backTestDateList)
@@ -128,17 +135,32 @@ public class ProgramBackTest
             await ExecuteStopLossAsync(backTestPositions, symbol, date);
 
             // 各日時点でのOHLCVデータを取得
+            var fetchStartDate = date.AddMinutes(-ohlcvDataFetchCount * OhlcvDataRepository.GetIntervalMinutes(_interval));
             var ohlcvData = await _repository.GetOhlcvDataBySymbolAsync(symbol,
-                startDate: date,
+                startDate: fetchStartDate,
                 endDate: date);
             Log.Debug("バックテスト日時: {Date}, 取得OHLCVデータ件数: {Count}, timestamputc: {timestamp}", date, ohlcvData.Count, ohlcvData.First().TimestampUtc);
 
             var quantity = BuyUSDC / ohlcvData.First().ClosePrice;
 
-            var signalIsLong = (date.Minute % 60) < 30; // ダミーの売買シグナル（30分ごとにロング・ショートを切り替え）
-            var signalIsShort = false;
+            var decision = atrTrailingStop.DecideSignal(symbol, backTestPositions, ohlcvData);
+            if (decision == null)
+            {
+                Log.Debug("ストラテジ判断結果: ポジション変更なし");
+                continue;
+            }
 
-            if (signalIsLong)
+            Log.Debug("ストラテジ判断結果: サイド: {Side}, ストラテジ名: {StrategyName}, 理由: {Reason}",
+                decision.Side,
+                decision.StrategyName,
+                decision.Reason);
+
+            // var signalIsLong = (date.Minute % 60) < 30; // ダミーの売買シグナル（30分ごとにロング・ショートを切り替え）
+            // var signalIsShort = false;
+
+            // TODO : ポジションストップロス価格の更新
+
+            if (decision.Side == SharedPositionSide.Long)
             {
                 // ロングポジションを追加
                 var positionItem = new PerpetualPositionItem
@@ -147,12 +169,12 @@ public class ProgramBackTest
                     OpenPrice = ohlcvData.First().ClosePrice,
                     Quantity = quantity,
                     side = SharedPositionSide.Long,
-                    StopLossPrice = ohlcvData.First().ClosePrice * 1.1m // 5%のストップロス設定
+                    StopLossPrice = decision.StopLossPrice
                 };
                 backTestPositions.AddPositionItem(positionItem);
-                Log.Debug("ロングポジションを追加しました。日時: {Date}, 価格: {Price}", date, ohlcvData.First().ClosePrice);
+                Log.Debug("ロングポジションを追加しました。日時: {Date}, 価格: {Price}, ストップロス価格: {stopLossPrice}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.StopLossPrice, decision.Reason);
             }
-            else if (signalIsShort)
+            else if (decision.Side == SharedPositionSide.Short)
             {
                 // ショートポジションを追加
                 var positionItem = new PerpetualPositionItem
@@ -161,10 +183,10 @@ public class ProgramBackTest
                     OpenPrice = ohlcvData.First().ClosePrice,
                     Quantity = quantity,
                     side = SharedPositionSide.Short,
-                    StopLossPrice = ohlcvData.First().ClosePrice * 1.00m // 5%のストップロス設定
+                    StopLossPrice = decision.StopLossPrice // 5%のストップロス設定
                 };
                 backTestPositions.AddPositionItem(positionItem);
-                Log.Debug("ショートポジションを追加しました。日時: {Date}, 価格: {Price}", date, ohlcvData.First().ClosePrice);
+                Log.Debug("ショートポジションを追加しました。日時: {Date}, 価格: {Price}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.Reason);
             }
         }
 
