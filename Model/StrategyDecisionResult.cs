@@ -6,9 +6,19 @@ using CryptoExchange.Net.SharedApis;
 public class StrategyDecisionResult
 {
     /// <summary>
+    /// 操作内容
+    /// </summary>
+    public StrategyDecisionOperation Operation { get; set; }
+
+    /// <summary>
     /// ポジションサイド
     /// </summary>
-    public SharedPositionSide Side { get; set; }
+    public SharedPositionSide? Side { get; set; }
+
+    /// <summary>
+    /// ストップロス価格
+    /// </summary>
+    public decimal? StopLossPrice { get; set; }
 
     /// <summary>
     /// ストラテジー名
@@ -20,17 +30,52 @@ public class StrategyDecisionResult
     /// </summary>
     public string Reason { get; set; }
 
-    public decimal? StopLossPrice { get; set; }
-
     public StrategyDecisionResult(
-        SharedPositionSide side,
         string strategyName,
-        string reason,
-        decimal? stopLossPrice)
+        string reason)
     {
-        Side = side;
         StrategyName = strategyName;
         Reason = reason;
-        StopLossPrice = stopLossPrice;
     }
+
+    public static StrategyDecisionResult CreateNoOperationResult(string strategyName, string reason)
+    {
+        return new StrategyDecisionResult
+        (
+            strategyName: strategyName,
+            reason: reason
+        )
+        {
+            Operation = StrategyDecisionOperation.None
+        };
+    }
+
+    public override string ToString()
+    {
+        return $"Strategy: {StrategyName}, Operation: {Operation}, Side: {Side}, StopLossPrice: {StopLossPrice}, Reason: {Reason}";
+    }
+}
+
+public enum StrategyDecisionOperation
+{
+
+    /// <summary>
+    /// 操作なし
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// ポジションを開く
+    /// </summary>
+    OpenPosition,
+
+    /// <summary>
+    /// ポジションを閉じる(Reduce Only)
+    /// </summary>
+    ClosePosition,
+
+    /// <summary>
+    /// ストップロス価格を更新
+    /// </summary>
+    UpdateStopLossPrice,
 }

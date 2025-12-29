@@ -144,49 +144,56 @@ public class ProgramBackTest
             var quantity = BuyUSDC / ohlcvData.First().ClosePrice;
 
             var decision = atrTrailingStop.DecideSignal(symbol, backTestPositions, ohlcvData);
-            if (decision == null)
+            Log.Debug("ストラテジ判断結果詳細: {Decision}", decision.ToString());
+            if (decision.Operation == StrategyDecisionOperation.None)
             {
                 Log.Debug("ストラテジ判断結果: ポジション変更なし");
                 continue;
             }
 
-            Log.Debug("ストラテジ判断結果: サイド: {Side}, ストラテジ名: {StrategyName}, 理由: {Reason}",
-                decision.Side,
-                decision.StrategyName,
-                decision.Reason);
+            // Log.Debug("ストラテジ判断結果: サイド: {Side}, ストラテジ名: {StrategyName}, 理由: {Reason}",
+            //     decision.Side,
+            //     decision.StrategyName,
+            //     decision.Reason);
 
             // var signalIsLong = (date.Minute % 60) < 30; // ダミーの売買シグナル（30分ごとにロング・ショートを切り替え）
             // var signalIsShort = false;
 
             // TODO : ポジションストップロス価格の更新
-
-            if (decision.Side == SharedPositionSide.Long)
+            if (decision.Operation == StrategyDecisionOperation.OpenPosition)
             {
-                // ロングポジションを追加
-                var positionItem = new PerpetualPositionItem
+                if (decision.Side == SharedPositionSide.Long)
                 {
-                    OpenDate = date,
-                    OpenPrice = ohlcvData.First().ClosePrice,
-                    Quantity = quantity,
-                    side = SharedPositionSide.Long,
-                    StopLossPrice = decision.StopLossPrice
-                };
-                backTestPositions.AddPositionItem(positionItem);
-                Log.Debug("ロングポジションを追加しました。日時: {Date}, 価格: {Price}, ストップロス価格: {stopLossPrice}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.StopLossPrice, decision.Reason);
+                    // ロングポジションを追加
+                    var positionItem = new PerpetualPositionItem
+                    {
+                        OpenDate = date,
+                        OpenPrice = ohlcvData.First().ClosePrice,
+                        Quantity = quantity,
+                        side = SharedPositionSide.Long,
+                        StopLossPrice = decision.StopLossPrice
+                    };
+                    backTestPositions.AddPositionItem(positionItem);
+                    Log.Debug("ロングポジションを追加しました。日時: {Date}, 価格: {Price}, ストップロス価格: {stopLossPrice}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.StopLossPrice, decision.Reason);
+                }
+                else if (decision.Side == SharedPositionSide.Short)
+                {
+                    // ショートポジションを追加
+                    var positionItem = new PerpetualPositionItem
+                    {
+                        OpenDate = date,
+                        OpenPrice = ohlcvData.First().ClosePrice,
+                        Quantity = quantity,
+                        side = SharedPositionSide.Short,
+                        StopLossPrice = decision.StopLossPrice // 5%のストップロス設定
+                    };
+                    backTestPositions.AddPositionItem(positionItem);
+                    Log.Debug("ショートポジションを追加しました。日時: {Date}, 価格: {Price}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.Reason);
+                }
             }
-            else if (decision.Side == SharedPositionSide.Short)
+            else if (decision.Operation == StrategyDecisionOperation.UpdateStopLossPrice)
             {
-                // ショートポジションを追加
-                var positionItem = new PerpetualPositionItem
-                {
-                    OpenDate = date,
-                    OpenPrice = ohlcvData.First().ClosePrice,
-                    Quantity = quantity,
-                    side = SharedPositionSide.Short,
-                    StopLossPrice = decision.StopLossPrice // 5%のストップロス設定
-                };
-                backTestPositions.AddPositionItem(positionItem);
-                Log.Debug("ショートポジションを追加しました。日時: {Date}, 価格: {Price}, 理由： {reason}", date, ohlcvData.First().ClosePrice, decision.Reason);
+                // TODO : ストップロス価格の更新処理
             }
         }
 

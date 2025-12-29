@@ -7,5 +7,5 @@ public interface IStrategyDecisioner
     /// <param name="position">現在のポジション情報</param>
     /// <param name="ohlcvData">指定日時点までのOHLCVデータのリスト</param>
     /// <returns>売買シグナルの判断結果を含むStrategyDecisionResultオブジェクト。ポジション変更ない場合はnull</returns>
-    StrategyDecisionResult? DecideSignal(string symbol, PerpetualPosition position, List<OhlcvData> ohlcvData);
+    StrategyDecisionResult DecideSignal(string symbol, PerpetualPosition position, List<OhlcvData> ohlcvData);
 }

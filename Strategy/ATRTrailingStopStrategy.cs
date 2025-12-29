@@ -13,7 +13,7 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
         _atrMultiplier = atrMultiplier;
     }
 
-    public StrategyDecisionResult? DecideSignal(string symbol, PerpetualPosition position, List<OhlcvData> ohlcvData)
+    public StrategyDecisionResult DecideSignal(string symbol, PerpetualPosition position, List<OhlcvData> ohlcvData)
     {
         // ATRトレーリングストップロジックの実装
 
@@ -24,7 +24,9 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
         if (latestAtrTrailing == null)
         {
             Log.Warning("ATRトレーリングストップの計算に失敗しました。OHLCVデータが不十分です。");
-            return null;
+            return StrategyDecisionResult.CreateNoOperationResult(
+                strategyName: nameof(ATRTrailingStopStrategy),
+                reason: "ATRトレーリングストップの計算に失敗しました。OHLCVデータが不十分です。");
         }
 
         var isLong = latestAtrTrailing.SellStop.HasValue;
@@ -34,14 +36,18 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
         if (!isLong && !isShort)
         {
             Log.Warning("ATRトレーリングストップに基づく明確なエントリーシグナルがありません。");
-            return null;
+            return StrategyDecisionResult.CreateNoOperationResult(
+                strategyName: nameof(ATRTrailingStopStrategy),
+                reason: "ATRトレーリングストップに基づく明確なエントリーシグナルがありません。");
         }
 
         // 現在ポジションを持っている場合は追加しない
         if (position.PositionItems.FirstOrDefault(item => item.CloseDate == null) != null)
         {
             Log.Debug("既にポジションを保有しているため、新規エントリーは行いません。");
-            return null;
+            return StrategyDecisionResult.CreateNoOperationResult(
+                strategyName: nameof(ATRTrailingStopStrategy),
+                reason: "既にポジションを保有しているため、新規エントリーは行いません。");
         }
 
         var side = isLong ? SharedPositionSide.Long : SharedPositionSide.Short;
@@ -51,10 +57,15 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
 
         return new StrategyDecisionResult
         (
-            side: side,
+            // side: side,
             strategyName: nameof(ATRTrailingStopStrategy),
-            reason: reason,
-            stopLossPrice: stopLossPrice // 実際のストップロス価格を設定
-        );
+            reason: reason
+        // stopLossPrice: stopLossPrice // 実際のストップロス価格を設定
+        )
+        {
+            Operation = StrategyDecisionOperation.OpenPosition,
+            Side = side,
+            StopLossPrice = stopLossPrice
+        };
     }
 }
