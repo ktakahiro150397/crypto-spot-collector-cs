@@ -40,8 +40,8 @@ try
                 break;
             case "backtest":
                 Log.Information("バックテストモードで起動します");
-                var startDate = new DateTime(2025, 12, 20);
-                var endDate = new DateTime(2025, 12, 24);
+                var startDate = new DateTime(2025, 10, 1);
+                var endDate = new DateTime(2025, 12, 30);
                 var interval = KlineInterval.ThirtyMinutes;
 
                 var programBackTest = new ProgramBackTest(

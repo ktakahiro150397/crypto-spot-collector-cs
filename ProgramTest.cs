@@ -1,11 +1,14 @@
 
 // See https://aka.ms/new-console-template for more information
+using Chart;
 using CryptoExchange.Net.Authentication;
 using HyperLiquid.Net;
 using HyperLiquid.Net.Clients;
 using HyperLiquid.Net.Enums;
 using Logging;
 using Serilog;
+using Skender.Stock.Indicators;
+using Extensions;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 
@@ -120,44 +123,48 @@ public static class ProgramTest
             }
         });
 
-        // この時点でのデータを表示してみる
-        Console.WriteLine("=== 初回データ取得後のOHLCVデータ ===");
-        foreach (var item in dataService.CachedData.Take(10))
-        {
-            Console.WriteLine($"1 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
-        }
+        // // この時点でのデータを表示してみる
+        // Console.WriteLine("=== 初回データ取得後のOHLCVデータ ===");
+        // foreach (var item in dataService.CachedData.Take(10))
+        // {
+        //     Console.WriteLine($"1 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+        // }
 
-        await Task.Delay(TimeSpan.FromMinutes(5)); // 3分間待機してデータ更新を観察
-        Console.WriteLine("=== 5分後のOHLCVデータ ===");
-        foreach (var item in dataService.CachedData.Take(10))
-        {
-            Console.WriteLine($"2 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
-        }
+        // await Task.Delay(TimeSpan.FromMinutes(5)); // 3分間待機してデータ更新を観察
+        // Console.WriteLine("=== 5分後のOHLCVデータ ===");
+        // foreach (var item in dataService.CachedData.Take(10))
+        // {
+        //     Console.WriteLine($"2 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+        // }
 
-        await Task.Delay(TimeSpan.FromMinutes(10)); // 3分間待機してデータ更新を観察
+        // await Task.Delay(TimeSpan.FromMinutes(10)); // 3分間待機してデータ更新を観察
 
-        // データが更新されているかどうかを確認
-        Console.WriteLine("=== 10分後のOHLCVデータ ===");
-        foreach (var item in dataService.CachedData.Take(10))
-        {
-            Console.WriteLine($"3 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
-        }
+        // // データが更新されているかどうかを確認
+        // Console.WriteLine("=== 10分後のOHLCVデータ ===");
+        // foreach (var item in dataService.CachedData.Take(10))
+        // {
+        //     Console.WriteLine($"3 : {item.TimestampUtc}: O={item.OpenPrice}, H={item.HighPrice}, L={item.LowPrice}, C={item.ClosePrice}, V={item.Volume}");
+        // }
 
 
-        //  var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
-        // Console.WriteLine($"Fetched Candle from MySQL: {fetchedCandle.Count}");
+        var fetchedCandle = await repo.GetOhlcvDataBySymbolAsync("ETH", DateTime.UtcNow.AddMonths(-3), DateTime.UtcNow);
+        Console.WriteLine($"Fetched Candle from MySQL: {fetchedCandle.Count}");
 
-        // // ATR Trailling Stop
-        // var atrResults = fetchedCandle.GetAtrStop().ToList();
+        // ATR Trailling Stop
+        var atrResults = fetchedCandle.GetAtrStop().ToList();
         // foreach (var result in atrResults.TakeLast(10))  // 最後の10件だけコンソール出力
         // {
         //     Console.WriteLine($"{result.Date}: {result.AtrStop} : {result.BuyStop} : {result.SellStop}");
         // }
 
-        // // ATR Trailing Stopのグラフを生成（直近7日間のみ表示）
-        // Console.WriteLine("\n=== ATR Trailing Stop グラフ生成 ===");
-        // AtrChartGenerator.SaveAtrStopChart(fetchedCandle, atrResults, "ETH", "atr_trailing_stop.png", displayDays: 7, width: 1920, height: 1080);
-        // AtrChartGenerator.SaveCandlestickWithAtrStop(fetchedCandle, atrResults, "ETH", "candlestick_atr_stop.png", displayDays: 7, width: 1920, height: 1080);
+        // ATR Trailing Stopのグラフを生成（直近7日間のみ表示）
+        Console.WriteLine("\n=== ATR Trailing Stop グラフ生成 ===");
+
+        AtrChartGenerator.SaveAtrStopChart(fetchedCandle, atrResults, "ETH", "atr_trailing_stop.png", displayDays: 30, width: 1920, height: 1080);
+        AtrChartGenerator.SaveCandlestickWithAtrStop(fetchedCandle, atrResults, "ETH", "candlestick_atr_stop.png", displayDays: 30, width: 1920, height: 1080);
+
+        atrResults.SaveAsTsv("atr_stop_results.tsv", includeHeader: true);
+        fetchedCandle.SaveAsTsv("ohlcv_data.tsv", includeHeader: true);
 
         // var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
         // Console.WriteLine($"Long Order : {longResult}");

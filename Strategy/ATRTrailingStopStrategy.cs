@@ -44,10 +44,43 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
         // 現在ポジションを持っている場合は追加しない
         if (position.PositionItems.FirstOrDefault(item => item.CloseDate == null) != null)
         {
-            Log.Debug("既にポジションを保有しているため、新規エントリーは行いません。");
-            return StrategyDecisionResult.CreateNoOperationResult(
-                strategyName: nameof(ATRTrailingStopStrategy),
-                reason: "既にポジションを保有しているため、新規エントリーは行いません。");
+            // 必要な場合はストップロス価格の更新を行う
+            var existingPosition = position.PositionItems.First(item => item.CloseDate == null);
+
+            if (existingPosition.side == SharedPositionSide.Long && existingPosition.StopLossPrice < stopLossPrice)
+            {
+                Log.Information("ストップロス価格を更新します。旧価格: {OldStopLoss}, 新価格: {NewStopLoss}", existingPosition.StopLossPrice, stopLossPrice);
+                return new StrategyDecisionResult
+                (
+                    strategyName: nameof(ATRTrailingStopStrategy),
+                    reason: "ATRトレーリングストップに基づくストップロス価格の更新"
+                )
+                {
+                    Operation = StrategyDecisionOperation.UpdateStopLossPrice,
+                    Side = existingPosition.side,
+                    StopLossPrice = stopLossPrice
+                };
+            }
+            else if (existingPosition.side == SharedPositionSide.Short && existingPosition.StopLossPrice > stopLossPrice)
+            {
+                Log.Information("ストップロス価格を更新します。旧価格: {OldStopLoss}, 新価格: {NewStopLoss}", existingPosition.StopLossPrice, stopLossPrice);
+                return new StrategyDecisionResult
+                (
+                    strategyName: nameof(ATRTrailingStopStrategy),
+                    reason: "ATRトレーリングストップに基づくストップロス価格の更新"
+                )
+                {
+                    Operation = StrategyDecisionOperation.UpdateStopLossPrice,
+                    Side = existingPosition.side,
+                    StopLossPrice = stopLossPrice
+                };
+            }
+            else
+            {
+                return StrategyDecisionResult.CreateNoOperationResult(
+                    strategyName: nameof(ATRTrailingStopStrategy),
+                    reason: "既存ポジションがあるため、新規エントリーは行いません。");
+            }
         }
 
         var side = isLong ? SharedPositionSide.Long : SharedPositionSide.Short;
@@ -57,10 +90,8 @@ public class ATRTrailingStopStrategy : IStrategyDecisioner
 
         return new StrategyDecisionResult
         (
-            // side: side,
             strategyName: nameof(ATRTrailingStopStrategy),
             reason: reason
-        // stopLossPrice: stopLossPrice // 実際のストップロス価格を設定
         )
         {
             Operation = StrategyDecisionOperation.OpenPosition,

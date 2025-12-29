@@ -305,22 +305,136 @@ public class HyperLiquidExchange
     public async Task<HyperLiquidKline[]> GetKlinesAsync(string symbol, KlineInterval interval, DateTime startDate, DateTime endDate, int limit = 300)
     {
         _logger.Debug("ローソク足データを取得します。シンボル: {Symbol}, 期間: {StartDate} - {EndDate}", symbol, startDate, endDate);
+        var ret = new List<HyperLiquidKline>();
+        DateTime fetchStartDate = startDate;
 
-        var klineResult = await MainWalletClient.FuturesApi.ExchangeData.GetKlinesAsync(
-            symbol: symbol,
-            interval: interval,
-            startTime: startDate,
-            endTime: endDate
-        );
+        // var klineResult = await MainWalletClient.FuturesApi.ExchangeData.GetKlinesAsync(
+        //     symbol: symbol,
+        //     interval: interval,
+        //     startTime: startDate,
+        //     endTime: endDate
+        // );
 
-        if (!klineResult.Success)
+        // if (!klineResult.Success)
+        // {
+        //     _logger.Error("ローソク足データの取得に失敗しました: {Error}", klineResult.Error);
+        //     throw new Exception($"Failed to get klines: {klineResult.Error}");
+        // }
+
+        // var LatestTimestamp = klineResult.Data.Max(k => k.OpenTime);
+        // if (LatestTimestamp < endDate)
+        // {
+        //     _logger.Debug("取得したローソク足データの最新日時が指定終了日時よりも前です。シンボル: {Symbol}, 最新日時: {LatestTimestamp}, 終了日時: {EndDate}",
+        //         symbol, LatestTimestamp, endDate);
+
+
+        // }
+
+        var klineResult = await GetKlinesRecursiveAsync(symbol, interval, startDate, endDate, new HyperLiquidKline[] { }, limit);
+
+        // _logger.Debug("ローソク足データを取得しました。件数: {Count}", klineResult.Data.Length);
+
+        if (klineResult.Length == 0)
         {
-            _logger.Error("ローソク足データの取得に失敗しました: {Error}", klineResult.Error);
-            throw new Exception($"Failed to get klines: {klineResult.Error}");
+            _logger.Warning("指定期間内にローソク足データが存在しません。シンボル: {Symbol}, 期間: {StartDate} - {EndDate}", symbol, startDate, endDate);
+            return Array.Empty<HyperLiquidKline>();
+        }
+        else
+        {
+            _logger.Debug("ローソク足データを取得しました。件数: {Count}", klineResult.Length);
+            return klineResult;
+        }
+    }
+
+    private async Task<HyperLiquidKline[]> GetKlinesRecursiveAsync(string symbol, KlineInterval interval, DateTime startDate, DateTime endDate, HyperLiquidKline[] existingKlines, int limit = 300)
+    {
+        const int ApiPageLimit = 5000; // HyperLiquid の実測上の上限（API側で固定されている場合がある）
+        var combinedList = existingKlines != null ? existingKlines.ToList() : new List<HyperLiquidKline>();
+
+        DateTime currentStart = startDate;
+        DateTime currentEnd = endDate;
+        int iteration = 0;
+        const int maxIterations = 1000; // 無限ループ防止
+
+        while (true)
+        {
+            iteration++;
+            if (iteration > maxIterations)
+            {
+                _logger.Warning("ローソク足取得が長時間続いているため中断します。iteration overflow");
+                break;
+            }
+
+            _logger.Debug("ローソク足データを取得: {Symbol} {Start} - {End}", symbol, currentStart, currentEnd);
+
+            var klineResult = await MainWalletClient.FuturesApi.ExchangeData.GetKlinesAsync(
+                symbol: symbol,
+                interval: interval,
+                startTime: currentStart,
+                endTime: currentEnd
+            );
+
+            if (!klineResult.Success)
+            {
+                _logger.Error("ローソク足データの取得に失敗しました: {Error}", klineResult.Error);
+                throw new Exception($"Failed to get klines: {klineResult.Error}");
+            }
+
+            if (klineResult.Data == null || klineResult.Data.Length == 0)
+            {
+                _logger.Debug("指定ウィンドウにデータがありません: {Start} - {End}", currentStart, currentEnd);
+                break;
+            }
+
+            var fetched = klineResult.Data;
+            _logger.Debug("取得件数: {Count} (範囲: {Min} - {Max})", fetched.Length, fetched.Min(k => k.OpenTime), fetched.Max(k => k.OpenTime));
+
+            combinedList.AddRange(fetched);
+
+            // 重複を取り除き、時刻順にソート
+            var deduped = combinedList
+                .GroupBy(k => k.OpenTime)
+                .Select(g => g.First())
+                .OrderBy(k => k.OpenTime)
+                .ToList();
+
+            var earliestReturned = fetched.Min(k => k.OpenTime);
+            var latestReturned = fetched.Max(k => k.OpenTime);
+
+            // 完了条件: 取得データの最新が要求終了日時を超えている（または到達している）
+            if (latestReturned >= endDate && earliestReturned <= startDate)
+            {
+                _logger.Debug("ローソク足取得完了。最新日時: {Latest}", latestReturned);
+                return deduped.ToArray();
+            }
+
+            // 取得件数が API の上限に達している -> 範囲が切られている可能性あり
+            // API が返すデータがリクエスト開始側からの先頭（earliestReturned == currentStart）なら、次は start を進める
+            // ただし、API が end 側から最新の方を返してきた場合（earliestReturned > currentStart）には end をずらして古い範囲を取得する
+            if (earliestReturned > currentStart)
+            {
+                // API が end 側の最新を返してきた（ウィンドウが end に寄っている）ので、end をずらして古い範囲を取得
+                currentEnd = earliestReturned.AddMilliseconds(-1);
+                _logger.Debug("APIが最新寄りで切られたデータを返したため end を後退させます。新 end: {End}", currentEnd);
+            }
+            else
+            {
+                // API が start 側から順に返しているので、start を進めて残りを取得
+                currentStart = latestReturned.AddMilliseconds(1);
+                _logger.Debug("APIが start 側から返したため start を進めます。新 start: {Start}", currentStart);
+            }
+
+            combinedList = deduped; // 保持して次ループへ
         }
 
-        _logger.Debug("ローソク足データを取得しました。件数: {Count}", klineResult.Data.Length);
-        return klineResult.Data;
+        // 最終的に重複除去して返す
+        var finalResult = combinedList
+            .GroupBy(k => k.OpenTime)
+            .Select(g => g.First())
+            .OrderBy(k => k.OpenTime)
+            .ToArray();
+
+        return finalResult;
     }
 
     /// <summary>

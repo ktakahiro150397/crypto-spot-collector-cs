@@ -98,11 +98,12 @@ public class ProgramBackTest
     {
         // 初期化処理
         // 1. データを取得
-        var fetchStartDate = _startDate.AddMinutes(-ohlcvDataFetchCount * OhlcvDataRepository.GetIntervalMinutes(_interval));
+        var fetchStartDate = _startDate.AddMinutes(-(ohlcvDataFetchCount + 10) * OhlcvDataRepository.GetIntervalMinutes(_interval));
         var candle = await _exchange.GetKlinesAsync(symbol,
         _interval,
         startDate: fetchStartDate,
-        endDate: _endDate);
+        endDate: _endDate,
+        limit: 100000);
         Log.Debug("Candle Count: {count}", candle.Count());
 
         // 2. データをDBに保存
@@ -194,6 +195,7 @@ public class ProgramBackTest
             else if (decision.Operation == StrategyDecisionOperation.UpdateStopLossPrice)
             {
                 // TODO : ストップロス価格の更新処理
+                backTestPositions.UpdateStopLossPrice(decision.Side!.Value, decision.StopLossPrice!.Value);
             }
         }
 
@@ -225,15 +227,15 @@ public class ProgramBackTest
                 {
                     // ロングポジションのストップロス発動
                     item.CloseDate = date;
-                    item.ClosePrice = closePrice;
-                    Log.Information("ロングポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, closePrice);
+                    item.ClosePrice = item.StopLossPrice.Value;
+                    Log.Information("ロングポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, item.ClosePrice);
                 }
                 else if (item.side == SharedPositionSide.Short && closePrice >= item.StopLossPrice.Value)
                 {
                     // ショートポジションのストップロス発動
                     item.CloseDate = date;
-                    item.ClosePrice = closePrice;
-                    Log.Information("ショートポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, closePrice);
+                    item.ClosePrice = item.StopLossPrice.Value;
+                    Log.Information("ショートポジションのストップロスが発動しました。日時: {Date}, クローズ価格: {ClosePrice}", date, item.ClosePrice);
                 }
             }
         }
@@ -286,6 +288,23 @@ public class BackTestPosition : PerpetualPosition
             item.OpenPrice,
             item.Quantity);
         PositionItems.Add(item);
+    }
+
+    /// <summary>
+    /// ポジションのストップロス価格を更新する
+    /// </summary>
+    public void UpdateStopLossPrice(SharedPositionSide side, decimal newStopLossPrice)
+    {
+        var existingItem = PositionItems
+            .FirstOrDefault(p => p.side == side && !p.CloseDate.HasValue);
+        if (existingItem != null)
+        {
+            Log.Debug("ポジションのストップロス価格を更新します。サイド: {Side}, 旧ストップロス価格: {OldStopLossPrice}, 新ストップロス価格: {NewStopLossPrice}",
+                side,
+                existingItem.StopLossPrice,
+                newStopLossPrice);
+            existingItem.StopLossPrice = newStopLossPrice;
+        }
     }
 
     public void OutputPositionSummary()
