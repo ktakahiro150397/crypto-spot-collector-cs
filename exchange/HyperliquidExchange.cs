@@ -438,6 +438,171 @@ public class HyperLiquidExchange
     }
 
     /// <summary>
+    /// 現在のポジション情報を取得する
+    /// </summary>
+    /// <param name="symbol">シンボル名</param>
+    /// <returns>ポジション情報。ポジションがない場合はnull</returns>
+    public async Task<PerpetualPositionItem?> GetCurrentPositionAsync(string symbol)
+    {
+        _logger.Debug("ポジション情報を取得します。シンボル: {Symbol}", symbol);
+
+        var positionsResult = await MainWalletClient.FuturesApi.Account.GetAccountInfoAsync();
+        if (!positionsResult.Success)
+        {
+            _logger.Error("ポジション情報の取得に失敗しました: {Error}", positionsResult.Error);
+            throw new Exception($"Failed to get position info: {positionsResult.Error}");
+        }
+
+        var symbolPosition = positionsResult.Data.Positions.FirstOrDefault(p => p.Position.Symbol == symbol);
+        if (symbolPosition == null || symbolPosition.Position.PositionQuantity == null || symbolPosition.Position.PositionQuantity == 0)
+        {
+            _logger.Debug("ポジションが存在しません。シンボル: {Symbol}", symbol);
+            return null;
+        }
+
+        var quantity = symbolPosition.Position.PositionQuantity.Value;
+        var isLong = quantity > 0;
+        var side = isLong ? SharedPositionSide.Long : SharedPositionSide.Short;
+
+        // マーク価格を取得（正確なエントリー価格はHyperLiquid APIから直接取得できない）
+        var tickerResult = await MainWalletClient.FuturesApi.ExchangeData.GetExchangeInfoAndTickersAsync();
+        if (!tickerResult.Success)
+        {
+            _logger.Error("ティッカー情報の取得に失敗しました: {Error}", tickerResult.Error);
+            throw new Exception($"Failed to get ticker info: {tickerResult.Error}");
+        }
+        var currentPrice = tickerResult.Data.Tickers.First(t => t.Symbol == symbol).MarkPrice;
+
+        // UnrealizedPnlからエントリー価格を逆算（近似値）
+        var entryPrice = symbolPosition.Position.UnrealizedPnl.HasValue && quantity != 0
+            ? currentPrice - (symbolPosition.Position.UnrealizedPnl.Value / quantity)
+            : currentPrice;
+
+        // ストップロス注文を取得
+        var stopLossPrice = await GetStopLossOrderAsync(symbol);
+
+        _logger.Information("ポジション情報: シンボル={Symbol}, サイド={Side}, 数量={Quantity}, エントリー価格={EntryPrice}, SL={StopLossPrice}",
+            symbol, side, Math.Abs(quantity), entryPrice, stopLossPrice);
+
+        return new PerpetualPositionItem
+        {
+            OpenDate = DateTime.UtcNow, // 実際の開始日時は取得できないため現在時刻
+            OpenPrice = entryPrice,
+            Quantity = Math.Abs(quantity),
+            side = side,
+            StopLossPrice = stopLossPrice
+        };
+    }
+
+    /// <summary>
+    /// 現在のストップロス注文の価格を取得する
+    /// </summary>
+    /// <param name="symbol">シンボル名</param>
+    /// <returns>ストップロス価格。注文がない場合はnull</returns>
+    public async Task<decimal?> GetStopLossOrderAsync(string symbol)
+    {
+        _logger.Debug("ストップロス注文を取得します。シンボル: {Symbol}", symbol);
+
+        var openOrdersResult = await MainWalletClient.FuturesApi.Trading.GetOpenOrdersAsync();
+        if (!openOrdersResult.Success)
+        {
+            _logger.Error("注文情報の取得に失敗しました: {Error}", openOrdersResult.Error);
+            throw new Exception($"Failed to get open orders: {openOrdersResult.Error}");
+        }
+
+        // Symbolに紐づく注文を取得（SL注文と判断）
+        var symbolOrders = openOrdersResult.Data.Where(o => o.Symbol == symbol).ToList();
+
+        if (symbolOrders.Any())
+        {
+            // 最初の注文の価格をSL価格として返す
+            var slOrder = symbolOrders.First();
+            var triggerPrice = slOrder.Price;
+            _logger.Debug("ストップロス注文と思われる注文が見つかりました。価格: {Price}, 注文ID: {OrderId}", triggerPrice, slOrder.OrderId);
+            return triggerPrice;
+        }
+
+        _logger.Debug("ストップロス注文が見つかりませんでした。シンボル: {Symbol}", symbol);
+        return null;
+    }
+
+    /// <summary>
+    /// ストップロス価格を更新する（既存のSL注文を削除して新しいものを作成）
+    /// </summary>
+    /// <param name="symbol">シンボル名</param>
+    /// <param name="newStopLossPrice">新しいストップロス価格</param>
+    public async Task UpdateStopLossAsync(string symbol, decimal newStopLossPrice)
+    {
+        _logger.Information("ストップロス価格を更新します。シンボル: {Symbol}, 新価格: {NewPrice}", symbol, newStopLossPrice);
+
+        // 現在のポジション情報を取得
+        var position = await GetCurrentPositionAsync(symbol);
+        if (position == null)
+        {
+            _logger.Warning("ポジションが存在しないため、ストップロス価格を更新できません。シンボル: {Symbol}", symbol);
+            return;
+        }
+
+        // 既存のストップロス注文を削除
+        var openOrdersResult = await MainWalletClient.FuturesApi.Trading.GetOpenOrdersAsync();
+        if (!openOrdersResult.Success)
+        {
+            _logger.Error("注文情報の取得に失敗しました: {Error}", openOrdersResult.Error);
+            throw new Exception($"Failed to get open orders: {openOrdersResult.Error}");
+        }
+
+        // 既存の全注文を削除（TP/SL含む）
+        var slOrders = openOrdersResult.Data
+            .Where(o => o.Symbol == symbol)
+            .ToList();
+
+        if (slOrders.Any())
+        {
+            _logger.Debug("既存のストップロス注文を削除します。件数: {Count}", slOrders.Count);
+            var cancelRequests = slOrders.Select(order => new HyperLiquidCancelRequest(symbol, order.OrderId)).ToList();
+            var cancelResult = await ApiWalletClient.FuturesApi.Trading.CancelOrdersAsync(cancelRequests);
+            if (!cancelResult.Success)
+            {
+                _logger.Error("ストップロス注文の削除に失敗しました: {Error}", cancelResult.Error);
+                throw new Exception($"Failed to cancel SL orders: {cancelResult.Error}");
+            }
+            _logger.Debug("既存のストップロス注文を削除しました");
+        }
+
+        // 新しいストップロス注文を作成
+        var symbolInfo = await GetSymbolInfoAsync(symbol);
+        var closeSide = position.side == SharedPositionSide.Long ? OrderSide.Sell : OrderSide.Buy;
+
+        // 数量と価格を適切な精度に丸める
+        var roundedQuantity = Math.Round(position.Quantity, symbolInfo.Symbol.QuantityDecimals);
+        var roundedPrice = RoundToSignificantFigures(newStopLossPrice, 5); // 有効数字5桁
+
+        _logger.Debug("SL注文パラメータ: Symbol={Symbol}, Side={Side}, Quantity={Quantity}(精度={QtyDec}), Price={Price}",
+            symbol, closeSide, roundedQuantity, symbolInfo.Symbol.QuantityDecimals, roundedPrice);
+
+        var slRequest = new HyperLiquidOrderRequest(
+            symbol: symbol,
+            side: closeSide,
+            orderType: OrderType.StopMarket,
+            quantity: roundedQuantity,
+            price: roundedPrice,
+            triggerPrice: roundedPrice,
+            tpSlType: TpSlType.StopLoss,
+            reduceOnly: true
+        );
+
+        var orderResult = await ApiWalletClient.FuturesApi.Trading.PlaceMultipleOrdersAsync(new[] { slRequest });
+        if (!orderResult.Success)
+        {
+            _logger.Error("ストップロス注文の作成に失敗しました: {Error}", orderResult.Error);
+            throw new Exception($"Failed to place SL order: {orderResult.Error}");
+        }
+
+        _logger.Information("ストップロス価格を更新しました。シンボル: {Symbol}, 新価格: {NewPrice}, 注文ID: {OrderId}",
+            symbol, newStopLossPrice, orderResult.Data[0].Data.OrderId);
+    }
+
+    /// <summary>
     /// 有効数字で丸める
     /// </summary>
     private static decimal RoundToSignificantFigures(decimal value, int significantFigures)

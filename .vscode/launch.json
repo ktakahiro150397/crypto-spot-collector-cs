@@ -13,7 +13,7 @@
             "program": "${workspaceFolder}/bin/Debug/net9.0/crypto-spot-collector-cs.dll",
             "args": [
                 "--mode",
-                "backtest"
+                "test"
             ],
             "cwd": "${workspaceFolder}",
             // 'console' フィールドの詳細については、https://aka.ms/VSCode-CS-LaunchJson-Console を参照してください

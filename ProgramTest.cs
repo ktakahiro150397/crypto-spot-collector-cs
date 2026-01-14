@@ -11,6 +11,7 @@ using Skender.Stock.Indicators;
 using Extensions;
 using System.CommandLine;
 using System.CommandLine.Parsing;
+using CryptoExchange.Net.SharedApis;
 
 public static class ProgramTest
 {
@@ -165,6 +166,46 @@ public static class ProgramTest
 
         atrResults.SaveAsTsv("atr_stop_results.tsv", includeHeader: true);
         fetchedCandle.SaveAsTsv("ohlcv_data.tsv", includeHeader: true);
+
+        // ===== ポジション情報取得とストップロス更新のテスト =====
+        Console.WriteLine("\n=== ポジション情報取得テスト ===");
+
+        // ETHのポジション情報を取得
+        var ethPosition = await exchange.GetCurrentPositionAsync("ETH");
+        if (ethPosition != null)
+        {
+            Console.WriteLine($"ETHポジション: サイド={ethPosition.side}, 数量={ethPosition.Quantity}, エントリー={ethPosition.OpenPrice}, SL={ethPosition.StopLossPrice}");
+
+            // GetStopLossOrderAsyncを直接テスト
+            var currentSlPrice = await exchange.GetStopLossOrderAsync("ETH");
+            Console.WriteLine($"現在のSL価格（直接取得）: {currentSlPrice}");
+
+            // ストップロス価格を更新してみる（テストなのでコメントアウト）
+            var newSlPrice = ethPosition.side == SharedPositionSide.Long
+                ? ethPosition.OpenPrice * 0.98m
+                : ethPosition.OpenPrice * 1.02m;
+            await exchange.UpdateStopLossAsync("ETH", newSlPrice);
+            Console.WriteLine($"ストップロス価格を更新しました: {newSlPrice}");
+
+            // 更新後のSL価格を確認
+            var updatedSlPrice = await exchange.GetStopLossOrderAsync("ETH");
+            Console.WriteLine($"更新後のSL価格: {updatedSlPrice}");
+        }
+        else
+        {
+            Console.WriteLine("ETHのポジションは存在しません");
+        }
+
+        // SOLのポジション情報を取得
+        var solPosition = await exchange.GetCurrentPositionAsync("SOL");
+        if (solPosition != null)
+        {
+            Console.WriteLine($"SOLポジション: サイド={solPosition.side}, 数量={solPosition.Quantity}, エントリー={solPosition.OpenPrice}, SL={solPosition.StopLossPrice}");
+        }
+        else
+        {
+            Console.WriteLine("SOLのポジションは存在しません");
+        }
 
         // var longResult = await exchange.PlaceOrderAsync("ETH", OrderSide.Buy, 100m, 1.1m, 0.9m);
         // Console.WriteLine($"Long Order : {longResult}");
