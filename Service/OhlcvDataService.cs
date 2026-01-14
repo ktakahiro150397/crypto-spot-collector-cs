@@ -106,12 +106,18 @@ public class OhlcvDataService : IDisposable
         try
         {
             _logger.Debug("OHLCVデータを取得中。シンボル: {Symbol}", _symbol);
-            var intervalSeconds = (int)_interval;
+            var intervalMinutes = GetIntervalMinutes(_interval);
+            var now = DateTime.UtcNow;
+
+            // 時刻を分単位で切り捨て（ミリ秒・秒を除去）
+            var endDate = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, 0, DateTimeKind.Utc);
+            var startDate = endDate.AddMinutes(-intervalMinutes * FetchDataCount);
+
             var candle = await _exchange.GetKlinesAsync(
                 _symbol,
                 _interval,
-                startDate: DateTime.UtcNow.AddSeconds(-intervalSeconds * FetchDataCount),
-                endDate: DateTime.UtcNow);
+                startDate: startDate,
+                endDate: endDate);
             _logger.Debug("OHLCVデータを取得しました。シンボル: {Symbol}, 件数: {Count}", _symbol, candle.Count());
 
             await _dataRepository.AddOrUpdateOhlcvDataAsync(_symbol, candle.Select(c => new OhlcvData
@@ -144,6 +150,26 @@ public class OhlcvDataService : IDisposable
         {
             _logger.Error(ex, "OHLCVキャッシュ更新エラー。シンボル: {Symbol}", _symbol);
         }
+    }
+
+    /// <summary>
+    /// KlineIntervalから分数を取得
+    /// </summary>
+    private static int GetIntervalMinutes(KlineInterval interval)
+    {
+        return interval switch
+        {
+            KlineInterval.OneMinute => 1,
+            KlineInterval.ThreeMinutes => 3,
+            KlineInterval.FiveMinutes => 5,
+            KlineInterval.FifteenMinutes => 15,
+            KlineInterval.ThirtyMinutes => 30,
+            KlineInterval.OneHour => 60,
+            KlineInterval.TwoHours => 120,
+            KlineInterval.FourHours => 240,
+            KlineInterval.OneDay => 1440,
+            _ => throw new ArgumentException($"Unsupported interval: {interval}")
+        };
     }
 
     /// <summary>

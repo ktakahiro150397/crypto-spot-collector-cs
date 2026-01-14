@@ -132,12 +132,18 @@ public class HyperLiquidExchange
             throw new Exception($"Order placement failed: {orderResult.Error}");
         }
 
+        if (orderResult.Data == null || orderResult.Data.Length < 3)
+        {
+            _logger.Error("注文結果が不正です。シンボル: {Symbol}, 結果数: {Count}", symbol, orderResult.Data?.Length ?? 0);
+            throw new Exception($"Invalid order result: expected 3 orders but got {orderResult.Data?.Length ?? 0}");
+        }
+
         _logger.Information("注文を作成しました。シンボル: {Symbol}, 数量: {Quantity}", symbol, quantity);
 
         return new PlaceOrderAsyncResult(
-            OrderId: orderResult.Data[0].Data.OrderId,
-            TakeProfitOrderId: orderResult.Data[1].Data.OrderId,
-            StopLossOrderId: orderResult.Data[2].Data.OrderId
+            OrderId: orderResult.Data[0].Data?.OrderId ?? 0,
+            TakeProfitOrderId: orderResult.Data[1].Data?.OrderId ?? 0,
+            StopLossOrderId: orderResult.Data[2].Data?.OrderId ?? 0
         );
     }
 
@@ -401,7 +407,14 @@ public class HyperLiquidExchange
             var earliestReturned = fetched.Min(k => k.OpenTime);
             var latestReturned = fetched.Max(k => k.OpenTime);
 
-            // 完了条件: 取得データの最新が要求終了日時を超えている（または到達している）
+            // 完了条件: 取得データが要求範囲をカバーしている
+            // または、currentStartがcurrentEndを超えた（取得すべき範囲がなくなった）
+            if (currentStart > currentEnd)
+            {
+                _logger.Debug("取得範囲が逆転したため終了します");
+                return deduped.ToArray();
+            }
+
             if (latestReturned >= endDate && earliestReturned <= startDate)
             {
                 _logger.Debug("ローソク足取得完了。最新日時: {Latest}", latestReturned);
