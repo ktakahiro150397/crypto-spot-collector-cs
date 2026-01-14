@@ -9,6 +9,7 @@ public class Config
     public string DiscordNotificationUrl { get; set; } = string.Empty;
     public bool IsTestnet { get; set; }
     public LoggingConfig Logging { get; set; } = new();
+    public BotConfig Bot { get; set; } = new();
 
     private static Config? _instance;
 
@@ -60,4 +61,13 @@ public class LoggingConfig
             _ => LogEventLevel.Information
         };
     }
+}
+
+public class BotConfig
+{
+    public List<string> Symbols { get; set; } = new();
+    public string Timeframe { get; set; } = "30m";
+    public int PositionSizeUSDC { get; set; } = 200;
+    public int PositionUpdateIntervalMinutes { get; set; } = 15;
+    public int StrategyCheckIntervalMinutes { get; set; } = 30;
 }

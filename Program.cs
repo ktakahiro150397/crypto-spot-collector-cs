@@ -48,6 +48,17 @@ try
         {
             case "bot":
                 Log.Information("トレーディングボットモードで起動します");
+                var programBot = new ProgramBot();
+
+                // Ctrl+C で停止できるようにする
+                Console.CancelKeyPress += (sender, e) =>
+                {
+                    e.Cancel = true;
+                    Log.Information("停止シグナルを受信しました");
+                    programBot.Stop();
+                };
+
+                await programBot.RunBotAsync();
                 break;
             case "backtest":
                 Log.Information("バックテストモードで起動します");
