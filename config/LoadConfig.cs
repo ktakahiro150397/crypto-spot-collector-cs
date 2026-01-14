@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Serilog.Events;
 
 public class Config
 {
@@ -7,6 +8,7 @@ public class Config
     public string ConnectionString { get; set; } = string.Empty;
     public string DiscordNotificationUrl { get; set; } = string.Empty;
     public bool IsTestnet { get; set; }
+    public LoggingConfig Logging { get; set; } = new();
 
     private static Config? _instance;
 
@@ -37,4 +39,25 @@ public class WalletAddress
     public string MainWalletAddress { get; set; } = string.Empty;
     public string APIWalletAddress { get; set; } = string.Empty;
     public string APIWalletAddressKey { get; set; } = string.Empty;
+}
+
+public class LoggingConfig
+{
+    public string LogDirectory { get; set; } = "logs";
+    public string MinimumLevel { get; set; } = "Information";
+    public int RetainedFileCountLimit { get; set; } = 30;
+
+    public LogEventLevel GetMinimumLevel()
+    {
+        return MinimumLevel.ToLower() switch
+        {
+            "verbose" => LogEventLevel.Verbose,
+            "debug" => LogEventLevel.Debug,
+            "information" => LogEventLevel.Information,
+            "warning" => LogEventLevel.Warning,
+            "error" => LogEventLevel.Error,
+            "fatal" => LogEventLevel.Fatal,
+            _ => LogEventLevel.Information
+        };
+    }
 }

@@ -34,8 +34,6 @@ public class ProgramBackTest
         }
     }
 
-    private const string Symbol = "ETH";
-
     private const int BuyUSDC = 200;
 
     private const int ohlcvDataFetchCount = 250;
@@ -84,14 +82,24 @@ public class ProgramBackTest
     }
 
 
-    public async Task ProgramBackTestMain()
+    public async Task ProgramBackTestMain(string symbols)
     {
-        // 初期化
-        await InitializeBackTestAsync(Symbol);
+        var symbolList = symbols.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-        // バックテスト実行
-        await ExecuteBackTestAsync(Symbol);
+        Log.Information("バックテスト対象シンボル: {Symbols}", string.Join(", ", symbolList));
 
+        foreach (var symbol in symbolList)
+        {
+            Log.Information("========== シンボル {Symbol} のバックテスト開始 ==========", symbol);
+
+            // 初期化
+            await InitializeBackTestAsync(symbol);
+
+            // バックテスト実行
+            await ExecuteBackTestAsync(symbol);
+
+            Log.Information("========== シンボル {Symbol} のバックテスト完了 ==========", symbol);
+        }
     }
 
     private async Task InitializeBackTestAsync(string symbol)
@@ -140,6 +148,13 @@ public class ProgramBackTest
             var ohlcvData = await _repository.GetOhlcvDataBySymbolAsync(symbol,
                 startDate: fetchStartDate,
                 endDate: date);
+
+            if (ohlcvData.Count == 0)
+            {
+                Log.Warning("OHLCVデータが取得できませんでした。日時: {Date}, 取得範囲: {StartDate} - {EndDate}", date, fetchStartDate, date);
+                continue;
+            }
+
             Log.Debug("バックテスト日時: {Date}, 取得OHLCVデータ件数: {Count}, timestamputc: {timestamp}", date, ohlcvData.Count, ohlcvData.First().TimestampUtc);
 
             var quantity = BuyUSDC / ohlcvData.First().ClosePrice;

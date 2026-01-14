@@ -8,8 +8,11 @@ using Serilog;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 
+// 設定ファイルを読み込み
+var config = Config.LoadSettings("secrets.json");
+
 // ログシステムの初期化
-LoggingConfiguration.Initialize(minimumLevel: Serilog.Events.LogEventLevel.Debug);
+LoggingConfiguration.Initialize(config.Logging);
 
 try
 {
@@ -22,10 +25,18 @@ try
         DefaultValueFactory = (argResult) => ""
     };
 
+    var symbolOption = new Option<string>(
+        name: "--symbol"
+    )
+    {
+        Description = "シンボルを指定します。カンマ区切りで複数指定可能（例: ETH,BTC,XRP）",
+        DefaultValueFactory = (argResult) => "ETH"
+    };
 
     RootCommand rootCommand = new("HyperLiquid Trading Bot")
     {
-        modeOption
+        modeOption,
+        symbolOption
     };
 
     rootCommand.SetAction(async (parseResult) =>
@@ -40,8 +51,9 @@ try
                 break;
             case "backtest":
                 Log.Information("バックテストモードで起動します");
-                var startDate = new DateTime(2025, 10, 1);
-                var endDate = new DateTime(2025, 12, 30);
+                var symbols = parseResult.GetValue(symbolOption);
+                var startDate = new DateTime(2025, 12, 1);
+                var endDate = new DateTime(2026, 1, 13);
                 var interval = KlineInterval.ThirtyMinutes;
 
                 var programBackTest = new ProgramBackTest(
@@ -49,7 +61,7 @@ try
                     endDate,
                     interval
                 );
-                await programBackTest.ProgramBackTestMain();
+                await programBackTest.ProgramBackTestMain(symbols);
                 break;
             case "test":
                 Log.Information("テストモードで起動します");
